@@ -1950,6 +1950,29 @@ function removeCableUnderCrosshair() {
 // capacity -> fire, smoke, the inverter is destroyed, its direct cables burn away,
 // and every panel in the array is charred (visually disabled, left in place) ----------
 const activeFires = [];
+const FIRE_LOD_RADIUS = 16; // full animated fire (incl. the point light) only this close; a
+                             // cheap static billboard stands in everywhere else, since a
+                             // city-wide spread can have many simultaneous fires at once
+
+// one shared texture/material for every far-fire billboard — cheap to instance many of
+const matFireBillboard = (() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 96;
+  const ctx = canvas.getContext('2d');
+  const flameGrad = ctx.createRadialGradient(32, 70, 2, 32, 70, 30);
+  flameGrad.addColorStop(0, 'rgba(255,225,150,0.95)');
+  flameGrad.addColorStop(0.45, 'rgba(255,120,40,0.85)');
+  flameGrad.addColorStop(1, 'rgba(255,80,20,0)');
+  ctx.fillStyle = flameGrad;
+  ctx.fillRect(0, 36, 64, 60);
+  const smokeGrad = ctx.createRadialGradient(32, 26, 2, 32, 26, 28);
+  smokeGrad.addColorStop(0, 'rgba(70,70,70,0.55)');
+  smokeGrad.addColorStop(1, 'rgba(70,70,70,0)');
+  ctx.fillStyle = smokeGrad;
+  ctx.fillRect(0, 0, 64, 58);
+  const tex = new THREE.CanvasTexture(canvas);
+  return new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+})();
 
 // persistent:false = a brief decorative flash (used for the "hit while live" zap effect);
 // persistent:true = an ongoing fire that stays until removeFireEffect() is called —
@@ -1983,7 +2006,14 @@ function spawnFireEffect(pos, persistent = false) {
   group.add(light);
   group.position.copy(pos);
   scene.add(group);
-  const f = { group, flames, smokes, light, t: 4.5, dur: 4.5, persistent };
+
+  const farSprite = new THREE.Sprite(matFireBillboard);
+  farSprite.position.copy(pos).addScaledVector(new THREE.Vector3(0, 1, 0), 0.3);
+  farSprite.scale.set(1.1, 1.65, 1);
+  farSprite.visible = false;
+  scene.add(farSprite);
+
+  const f = { group, flames, smokes, light, farSprite, pos: pos.clone(), t: 4.5, dur: 4.5, persistent, near: true };
   activeFires.push(f);
   return f;
 }
@@ -1991,6 +2021,7 @@ function spawnFireEffect(pos, persistent = false) {
 function removeFireEffect(f) {
   if (!f) return;
   scene.remove(f.group);
+  if (f.farSprite) scene.remove(f.farSprite);
   const idx = activeFires.indexOf(f);
   if (idx >= 0) activeFires.splice(idx, 1);
 }
@@ -1998,9 +2029,24 @@ function removeFireEffect(f) {
 function updateFires(dt) {
   for (let i = activeFires.length - 1; i >= 0; i--) {
     const f = activeFires[i];
+
+    const near = camera.position.distanceToSquared(f.pos) < FIRE_LOD_RADIUS * FIRE_LOD_RADIUS;
+    if (near !== f.near) {
+      f.near = near;
+      f.group.visible = near;
+      f.farSprite.visible = !near;
+    }
+    if (!near) {
+      // far fires skip all per-frame flame/smoke/light animation — the billboard is static
+      if (!f.persistent) {
+        f.t -= dt;
+        if (f.t <= 0) { removeFireEffect(f); }
+      }
+      continue;
+    }
+
     if (f.persistent) {
       f.t = (f.t - dt) % f.dur; // loops forever, only used to drive the flicker cycle
-      const life = 1;
       f.flames.forEach((fl) => {
         const s = 0.7 + Math.random() * 0.6;
         fl.scale.set(s, s, s);
@@ -2031,7 +2077,7 @@ function updateFires(dt) {
       sm.material.opacity = Math.max(0, 0.5 * life);
     });
     f.light.intensity = 3.2 * life;
-    if (f.t <= 0) { scene.remove(f.group); activeFires.splice(i, 1); }
+    if (f.t <= 0) { removeFireEffect(f); }
   }
 }
 
@@ -2809,7 +2855,7 @@ window.__debug = {
   getInverterPlacementTarget, testFireInverter: () => { inverterFireCooldown = 0; fireInverter(); },
   findNearestAnchor, updateElectricalSparks,
   collectInverterNetwork, triggerInverterOverload, toggleInverterSelection, handleInverterRightClick,
-  selectedInverters, activeFires, updateFires, updateInverterProduction,
+  selectedInverters, activeFires, updateFires, updateInverterProduction, spawnFireEffect, FIRE_LOD_RADIUS,
   getTotalKwh: () => totalKwhProduced, INVERTER_CAPACITY_KW,
   findInverterUnderCrosshair, destroyCable,
   refreshInverterSign, refreshAllInverterSigns, checkLiveOverloads, updateInverterSignFlash, bandForLoadPercent,
