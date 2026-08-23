@@ -74,7 +74,7 @@ function updateTextSprite(sprite, text, opts = {}) {
 // The count only ever goes up (an achievement tally), even if the cable is later removed.
 const upgrades = {
   sprintMul: 1, jumpMul: 1, heightMul: 1, magBonus: 0, reloadMul: 1, fireRateMul: 1,
-  largePanelUnlocked: false, salvageUnlocked: false, buildingJumpUnlocked: false, goldStars: 0,
+  largePanelUnlocked: false, salvageUnlocked: false, buildingJumpUnlocked: false, goldStars: 0, waterGunUnlocked: false,
 };
 function effStandHeight() { return EYE_HEIGHT_STAND * upgrades.heightMul; }
 function effCrouchHeight() { return EYE_HEIGHT_CROUCH * upgrades.heightMul; }
@@ -187,6 +187,7 @@ function addWallBox(minX, maxX, minZ, maxZ, minY, maxY) {
 
 // ---------- Special zones (market square, park+lake, solar farm, salvage yard) — kept clear of buildings/crates ----------
 const SALVAGE_YARD = { cx: 70, cz: -110, r: 14 };
+const salvageCleric = {}; // filled in when the yard is built: { group, pos, cableSign, panelSign }
 const SPECIAL_ZONES = [
   { cx: 118, cz: 0, r: 26 },     // market square
   { cx: -118, cz: 0, r: 34 },    // park + lake
@@ -670,6 +671,16 @@ const megaBuildingBoxes = MEGA_BUILDING_DEFS.map((def) => {
     light.position.copy(bulb.position);
     scene.add(light);
   });
+
+  // the salvage cleric — give it your scrap by walking up close; its signs track
+  // lifetime totals toward the water gun unlock
+  salvageCleric.group = buildPerson(cx, cz, 0, 'stand');
+  salvageCleric.pos = new THREE.Vector3(cx, 0, cz);
+  salvageCleric.cableSign = makeTextSprite('0/1000 cable', { fontSize: 40, color: '#ffcf8a', border: '#ff9a4d', scale: 0.38 });
+  salvageCleric.cableSign.position.set(0, 2.4, 0);
+  salvageCleric.panelSign = makeTextSprite('0/500 panel', { fontSize: 40, color: '#8aff9e', border: '#4dff88', scale: 0.38 });
+  salvageCleric.panelSign.position.set(0, 2.05, 0);
+  salvageCleric.group.add(salvageCleric.cableSign, salvageCleric.panelSign);
 }
 
 // ---------- Cable-raycast target list — snapshot of every solid mesh built so far
@@ -749,6 +760,28 @@ inverterGunGroup.position.set(0.22, -0.2, -0.4);
 inverterGunGroup.visible = false;
 camera.add(inverterGunGroup);
 
+// ---------- Water-gun view model (gun 5) ----------
+const matWaterTool = new THREE.MeshStandardMaterial({ color: 0x2a4a5a, roughness: 0.4, metalness: 0.5 });
+const waterGunGroup = new THREE.Group();
+{
+  const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.22, 10), matWaterTool);
+  tank.position.set(0, 0.02, -0.02);
+  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.2, 8), matToolBody);
+  nozzle.rotation.x = Math.PI / 2;
+  nozzle.position.set(0, 0, -0.3);
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.06), matToolBody);
+  handle.position.set(0, -0.1, 0.03);
+  waterGunGroup.add(tank, nozzle, handle);
+}
+waterGunGroup.position.set(0.22, -0.2, -0.4);
+waterGunGroup.visible = false;
+camera.add(waterGunGroup);
+
+const matWaterStream = new THREE.MeshBasicMaterial({ color: 0x7fd4ff, transparent: true, opacity: 0.55 });
+const waterStreamMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.05, 1, 8), matWaterStream);
+waterStreamMesh.visible = false;
+scene.add(waterStreamMesh);
+
 // ---------- Placement ghost preview ----------
 const ghostGeo = new THREE.BoxGeometry(PANEL_SIZE, PANEL_THICK, PANEL_SIZE);
 const ghostGeoLarge = new THREE.BoxGeometry(PANEL_SIZE_LARGE, PANEL_THICK, PANEL_SIZE_LARGE);
@@ -790,11 +823,13 @@ function setWeapon(w) {
   cableGunGroup.visible = w === 2;
   routerGunGroup.visible = w === 3;
   inverterGunGroup.visible = w === 4;
+  waterGunGroup.visible = w === 5;
   mouseDown = false;
   if (w === 2) cancelCable();
   if (routerGrab) { if (routerGrab.previewLine) scene.remove(routerGrab.previewLine); routerGrab = null; }
   ghostMesh.visible = false;
   ghostInverterMesh.visible = false;
+  waterStreamMesh.visible = false;
 }
 
 overlay.addEventListener('click', () => {
@@ -826,6 +861,10 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit2') setWeapon(2);
   if (e.code === 'Digit3') setWeapon(3);
   if (e.code === 'Digit4') setWeapon(4);
+  if (e.code === 'Digit5') {
+    if (upgrades.waterGunUnlocked) setWeapon(5);
+    else showToast(`WATER GUN LOCKED — GIVE ${SCRAP_UNLOCK_CABLE} CABLE + ${SCRAP_UNLOCK_PANEL} PANEL SCRAP TO THE SALVAGE CLERIC`);
+  }
   if (e.code === 'KeyX' && upgrades.largePanelUnlocked && currentWeapon === 1) {
     selectedPanelSize = selectedPanelSize === 'small' ? 'large' : 'small';
     showToast(selectedPanelSize === 'large' ? 'LARGE PANEL SELECTED' : 'STANDARD PANEL SELECTED');
@@ -849,9 +888,11 @@ document.addEventListener('mousedown', (e) => {
   } else if (currentWeapon === 3) {
     if (e.button === 0) routerLeftDown();
     if (e.button === 2) routerRightClick();
-  } else {
+  } else if (currentWeapon === 4) {
     if (e.button === 0) fireInverter();
     if (e.button === 2) handleInverterRightClick();
+  } else {
+    if (e.button === 0) mouseDown = true; // weapon 5: hold to spray
   }
 });
 document.addEventListener('mouseup', (e) => {
@@ -1314,9 +1355,10 @@ function toggleInverterSwitch() {
   if (inv.poweredOn) {
     inv.poweredOn = false;
     updateInverterIndicator(inv);
-    showToast('SOLAR ARRAY OFFLINE');
+    showToast(inv.burning ? 'INVERTER OFF — STILL ON FIRE, SPRAY IT DOWN' : 'SOLAR ARRAY OFFLINE');
     return;
   }
+  if (inv.burning) { showToast('PUT THE FIRE OUT BEFORE SWITCHING IT BACK ON'); return; }
   const { watts: arrayWatts, capacityWatts } = collectInverterNetwork(inv);
   if (arrayWatts > capacityWatts) {
     triggerInverterOverload(inv, arrayWatts, capacityWatts);
@@ -1847,16 +1889,21 @@ function cancelCable() {
   cableActive = null;
 }
 
-function dropScrap(point) {
+function dropScrap(point, type = 'cable') {
   const ray = new THREE.Raycaster();
   ray.set(new THREE.Vector3(point.x, point.y + 40, point.z), DOWN);
   const hits = ray.intersectObjects(groundColliders, false);
   const groundY = hits.length ? hits[0].point.y : 0;
-  const scrap = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.045, 6, 10), matScrap);
-  scrap.rotation.x = Math.PI / 2;
-  scrap.position.set(point.x, groundY + 0.05, point.z);
+  // cable scrap = coiled wire (torus); panel scrap = a broken shard (flat box) — visually distinct
+  const scrap = type === 'panel'
+    ? new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.16), matScrap)
+    : new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.045, 6, 10), matScrap);
+  if (type !== 'panel') scrap.rotation.x = Math.PI / 2;
+  else scrap.rotation.y = rand(0, Math.PI);
+  scrap.position.set(point.x, groundY + (type === 'panel' ? 0.03 : 0.05), point.z);
   scrap.castShadow = true;
   scrap.receiveShadow = true;
+  scrap.userData.scrapType = type;
   scene.add(scrap);
   scraps.push(scrap);
 }
@@ -1904,7 +1951,10 @@ function removeCableUnderCrosshair() {
 // and every panel in the array is charred (visually disabled, left in place) ----------
 const activeFires = [];
 
-function spawnFireEffect(pos) {
+// persistent:false = a brief decorative flash (used for the "hit while live" zap effect);
+// persistent:true = an ongoing fire that stays until removeFireEffect() is called —
+// used for burning inverters/panels that need the water gun to put out
+function spawnFireEffect(pos, persistent = false) {
   const group = new THREE.Group();
   const flames = [];
   for (let i = 0; i < 5; i++) {
@@ -1924,6 +1974,7 @@ function spawnFireEffect(pos) {
     );
     smoke.position.set((Math.random() - 0.5) * 0.3, 0.3 + Math.random() * 0.2, (Math.random() - 0.5) * 0.3);
     smoke.userData.riseSpeed = 0.35 + Math.random() * 0.25;
+    smoke.userData.baseScale = smoke.scale.x;
     group.add(smoke);
     smokes.push(smoke);
   }
@@ -1932,12 +1983,41 @@ function spawnFireEffect(pos) {
   group.add(light);
   group.position.copy(pos);
   scene.add(group);
-  activeFires.push({ group, flames, smokes, light, t: 4.5, dur: 4.5 });
+  const f = { group, flames, smokes, light, t: 4.5, dur: 4.5, persistent };
+  activeFires.push(f);
+  return f;
+}
+
+function removeFireEffect(f) {
+  if (!f) return;
+  scene.remove(f.group);
+  const idx = activeFires.indexOf(f);
+  if (idx >= 0) activeFires.splice(idx, 1);
 }
 
 function updateFires(dt) {
   for (let i = activeFires.length - 1; i >= 0; i--) {
     const f = activeFires[i];
+    if (f.persistent) {
+      f.t = (f.t - dt) % f.dur; // loops forever, only used to drive the flicker cycle
+      const life = 1;
+      f.flames.forEach((fl) => {
+        const s = 0.7 + Math.random() * 0.6;
+        fl.scale.set(s, s, s);
+        fl.material.opacity = 0.85;
+      });
+      f.smokes.forEach((sm) => {
+        sm.position.y += sm.userData.riseSpeed * dt;
+        sm.scale.multiplyScalar(1 + dt * 0.4);
+        sm.material.opacity = Math.max(0, 0.5 * (1 - sm.scale.x / (sm.userData.baseScale * 4)));
+        if (sm.scale.x > sm.userData.baseScale * 4) { // recycle back to the base once it's puffed out
+          sm.position.set((Math.random() - 0.5) * 0.3, 0.3 + Math.random() * 0.2, (Math.random() - 0.5) * 0.3);
+          sm.scale.setScalar(sm.userData.baseScale);
+        }
+      });
+      f.light.intensity = 3.2 + Math.sin(f.t * 9) * 0.4;
+      continue;
+    }
     f.t -= dt;
     const life = Math.max(0, f.t / f.dur);
     f.flames.forEach((fl) => {
@@ -1963,30 +2043,240 @@ function burnPanel(p) {
 }
 
 function destroyInverter(inv) {
+  if (inv.fireRecord) { removeFireEffect(inv.fireRecord); inv.fireRecord = null; }
   removeInverterFromWorld(inv);
   if (inv.groupId && inverterGroups.has(inv.groupId)) inverterGroups.get(inv.groupId).delete(inv);
   selectedInverters.delete(inv);
 }
 
-// Overload takes down the WHOLE connected network, not just the unit that tripped it —
-// chained inverters share one electrical bus, so if it's over capacity everything on
-// it is at risk, matching how they share capacity when healthy.
+// Overload sets the WHOLE connected network (and its array) ON FIRE rather than
+// destroying it outright — chained inverters share one electrical bus, so if it's over
+// capacity everything on it is at risk. Everything stays live (poweredOn) and burning
+// until the player manually turns each inverter off (E) and sprays it and its panels
+// out with the water gun; spraying anything still live is fatal.
 function triggerInverterOverload(inv, arrayWatts, capacityWatts) {
   const { panels: arrayPanels, inverters: networkInverters } = collectInverterNetwork(inv);
   const unitWord = networkInverters.size > 1 ? `${networkInverters.size}-INVERTER CHAIN` : 'INVERTER';
-  showDangerBanner(`⚠ OVERLOAD — ${(arrayWatts / 1000).toFixed(1)}kW ARRAY ON A ${(capacityWatts / 1000).toFixed(0)}kW ${unitWord}`);
+  showDangerBanner(`⚠ OVERLOAD — ${(arrayWatts / 1000).toFixed(1)}kW ARRAY ON A ${(capacityWatts / 1000).toFixed(0)}kW ${unitWord} — TURN IT OFF AND PUT IT OUT`);
 
-  networkInverters.forEach((netInv) => spawnFireEffect(netInv.pos.clone()));
+  networkInverters.forEach((netInv) => {
+    if (netInv.burning) return;
+    netInv.burning = true;
+    netInv.spreadTimer = 0;
+    netInv.hasSpread = false;
+    netInv.fireRecord = spawnFireEffect(netInv.pos.clone(), true);
+  });
   let i = 0;
   arrayPanels.forEach((p) => {
     burnPanel(p);
-    if (i < 25 && Math.random() < 0.4) spawnFireEffect(p.pos.clone());
+    if (!p.burning) {
+      p.burning = true;
+      p.spreadTimer = 0;
+      p.hasSpread = false;
+      if (i < 25) p.fireRecord = spawnFireEffect(p.pos.clone(), true);
+    }
     i++;
   });
-  networkInverters.forEach((netInv) => {
-    Array.from(netInv.wiredCables).forEach((c) => destroyCable(c, false));
+  // any cable directly between two members of the burning network is now a live hazard
+  cables.forEach((c) => {
+    const startIn = c.startAnchor && ((c.startAnchor.type === 'inverter' && networkInverters.has(c.startAnchor.obj)) || (c.startAnchor.type === 'panel' && arrayPanels.has(c.startAnchor.obj)));
+    const endIn = c.endAnchor && ((c.endAnchor.type === 'inverter' && networkInverters.has(c.endAnchor.obj)) || (c.endAnchor.type === 'panel' && arrayPanels.has(c.endAnchor.obj)));
+    if (startIn && endIn) c.burning = true;
   });
-  networkInverters.forEach((netInv) => destroyInverter(netInv));
+}
+
+// which building's footprint (x,z) falls inside — used so fire can spread to every
+// array mounted on the same building, not just the one that overloaded
+function findBuildingContaining(x, z) {
+  const allBoxes = buildingBoxes.concat(megaBuildingBoxes);
+  return allBoxes.find((b) => x >= b.minX - 1 && x <= b.maxX + 1 && z >= b.minZ - 1 && z <= b.maxZ + 1) || null;
+}
+function withinBuildingBox(pos, b) {
+  return pos.x >= b.minX - 1 && pos.x <= b.maxX + 1 && pos.z >= b.minZ - 1 && pos.z <= b.maxZ + 1;
+}
+
+// generic ignite used only by spreading — doesn't touch switch state, just sets it burning
+function igniteObject(type, obj) {
+  if (obj.burning) return;
+  if (type === 'panel') burnPanel(obj);
+  obj.burning = true;
+  obj.spreadTimer = 0;
+  obj.hasSpread = false;
+  obj.fireRecord = spawnFireEffect(obj.pos.clone(), true);
+}
+
+// after 30s left unattended, a burning inverter/panel spreads fire to every other
+// array on the SAME building (regardless of wiring) and along every cable it's part
+// of (regardless of whether that circuit is even powered — fire doesn't care) — this
+// can chain across an entire connected city if everything's cabled together
+function spreadFireFrom(type, obj) {
+  const b = findBuildingContaining(obj.pos.x, obj.pos.z);
+  if (b) {
+    panels.forEach((p) => { if (!p.burning && withinBuildingBox(p.pos, b)) igniteObject('panel', p); });
+    inverters.forEach((inv) => { if (!inv.burning && withinBuildingBox(inv.pos, b)) igniteObject('inverter', inv); });
+  }
+  cables.forEach((c) => {
+    let other = null;
+    if (c.startAnchor && c.startAnchor.obj === obj) other = c.endAnchor;
+    else if (c.endAnchor && c.endAnchor.obj === obj) other = c.startAnchor;
+    if (!other) return;
+    c.burning = true;
+    igniteObject(other.type, other.obj);
+  });
+}
+
+function updateFireSpread(dt) {
+  inverters.forEach((inv) => {
+    if (!inv.burning || inv.hasSpread) return;
+    inv.spreadTimer = (inv.spreadTimer || 0) + dt;
+    if (inv.spreadTimer >= 30) { inv.hasSpread = true; spreadFireFrom('inverter', inv); }
+  });
+  panels.forEach((p) => {
+    if (!p.burning || p.hasSpread) return;
+    p.spreadTimer = (p.spreadTimer || 0) + dt;
+    if (p.spreadTimer >= 30) { p.hasSpread = true; spreadFireFrom('panel', p); }
+  });
+}
+
+// spraying a burning-but-switched-off inverter finally, safely tears it down
+function extinguishInverter(inv) {
+  if (inv.fireRecord) { removeFireEffect(inv.fireRecord); inv.fireRecord = null; }
+  showToast('FIRE OUT — INVERTER SAFED');
+  Array.from(inv.wiredCables).forEach((c) => destroyCable(c, true)); // cable falls apart, drops scrap
+  destroyInverter(inv);
+}
+
+// spraying a burning-but-safe (network off) panel puts its fire out; it stays in place,
+// permanently charred (see burnPanel), just no longer actively burning
+function extinguishPanel(p) {
+  if (p.fireRecord) { removeFireEffect(p.fireRecord); p.fireRecord = null; }
+  p.burning = false;
+  showToast('PANEL FIRE OUT');
+}
+
+// is this panel currently part of ANY powered-on inverter's network? (touching-block +
+// cable reachability, mirroring collectInverterNetwork but starting from a panel)
+function isPanelElectrified(p) {
+  for (const inv of inverters) {
+    if (!inv.poweredOn) continue;
+    if (collectInverterNetwork(inv).panels.has(p)) return true;
+  }
+  return false;
+}
+
+function isAnchorElectrified(anchor) {
+  if (!anchor) return false;
+  return anchor.type === 'inverter' ? anchor.obj.poweredOn : isPanelElectrified(anchor.obj);
+}
+
+function electrocutePlayer() {
+  showDangerBanner('⚡ ELECTROCUTED!');
+  camera.position.set(0, effStandHeight(), 6);
+  velocity.set(0, 0, 0);
+  airLaunch.set(0, 0, 0);
+  grounded = false;
+}
+
+// hitting a still-live inverter/panel with water destroys it outright (in addition to
+// electrocuting the player) — no soft burning state, it just fails catastrophically
+function destroyLiveInverterHit(inv) {
+  Array.from(inv.wiredCables).forEach((c) => destroyCable(c, true));
+  destroyInverter(inv);
+}
+function destroyLivePanelHit(p) {
+  if (p.fireRecord) removeFireEffect(p.fireRecord);
+  const dropPos = p.pos.clone();
+  scene.remove(p.mesh);
+  const gi = groundColliders.indexOf(p.mesh);
+  if (gi >= 0) groundColliders.splice(gi, 1);
+  const bodyMesh = p.mesh.children.find((c) => c.material === matPanel || c.material === matPanelLarge);
+  const wi = worldMeshes.indexOf(bodyMesh);
+  if (wi >= 0) worldMeshes.splice(wi, 1);
+  removePanelFromGroups(p);
+  const idx = panels.indexOf(p);
+  if (idx >= 0) panels.splice(idx, 1);
+  totalWattsInstalled -= p.watts;
+  dropScrap(dropPos, 'panel');
+}
+
+// ---------- Water gun (gun 5, unlocked by donating scrap to the salvage cleric) ----------
+const WATER_RANGE = 10;
+let waterSprayCooldown = 0;
+
+function raycastWaterTarget() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  let best = null, bestDist = WATER_RANGE;
+
+  const invHits = centerRay.intersectObjects(inverters.map((i) => i.mesh), true);
+  if (invHits.length && invHits[0].distance < bestDist) {
+    let obj = invHits[0].object;
+    while (obj && !inverters.some((i) => i.mesh === obj)) obj = obj.parent;
+    const inv = inverters.find((i) => i.mesh === obj);
+    if (inv) { best = { type: 'inverter', obj: inv, point: invHits[0].point }; bestDist = invHits[0].distance; }
+  }
+  const panelHits = centerRay.intersectObjects(panels.map((p) => p.mesh), true);
+  if (panelHits.length && panelHits[0].distance < bestDist) {
+    let obj = panelHits[0].object;
+    while (obj && !panels.some((p) => p.mesh === obj)) obj = obj.parent;
+    const p = panels.find((pp) => pp.mesh === obj);
+    if (p) { best = { type: 'panel', obj: p, point: panelHits[0].point }; bestDist = panelHits[0].distance; }
+  }
+  const cableHits = centerRay.intersectObjects(cables.map((c) => c.mesh), true);
+  if (cableHits.length && cableHits[0].distance < bestDist) {
+    let obj = cableHits[0].object;
+    while (obj && !obj.userData.cableRef) obj = obj.parent;
+    if (obj) { best = { type: 'cable', obj: obj.userData.cableRef, point: cableHits[0].point }; bestDist = cableHits[0].distance; }
+  }
+  return best;
+}
+
+function waterSprayTick() {
+  const hit = raycastWaterTarget();
+  if (!hit) return;
+
+  if (hit.type === 'inverter') {
+    const inv = hit.obj;
+    if (inv.poweredOn) {
+      showDangerBanner('⚡ ELECTROCUTED — INVERTER WAS STILL LIVE');
+      destroyLiveInverterHit(inv);
+      electrocutePlayer();
+    } else if (inv.burning) {
+      extinguishInverter(inv);
+    }
+  } else if (hit.type === 'panel') {
+    const p = hit.obj;
+    if (isPanelElectrified(p)) {
+      showDangerBanner('⚡ ELECTROCUTED — PANEL WAS STILL LIVE');
+      destroyLivePanelHit(p);
+      electrocutePlayer();
+    } else if (p.burning) {
+      extinguishPanel(p);
+    }
+  } else if (hit.type === 'cable') {
+    const c = hit.obj;
+    if (c.burning && (isAnchorElectrified(c.startAnchor) || isAnchorElectrified(c.endAnchor))) {
+      showDangerBanner('⚡ ELECTROCUTED — CABLE WAS LIVE AND BURNING');
+      destroyCable(c, false);
+      electrocutePlayer();
+    }
+    // an operational (non-burning) cable is always safe to spray, whether live or not
+  }
+}
+
+function updateWaterGun(dt) {
+  if (waterSprayCooldown > 0) waterSprayCooldown -= dt;
+  if (!(currentWeapon === 5 && mouseDown && isLocked)) { waterStreamMesh.visible = false; return; }
+
+  const hit = raycastWaterTarget();
+  const gunTip = new THREE.Vector3(0.1, -0.1, -0.4).applyMatrix4(camera.matrixWorld);
+  const end = hit ? hit.point : gunTip.clone().addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), WATER_RANGE);
+  alignCylinderBetween(waterStreamMesh, gunTip, end);
+  waterStreamMesh.visible = true;
+
+  if (waterSprayCooldown <= 0) {
+    waterSprayCooldown = 0.2;
+    waterSprayTick();
+  }
 }
 
 // ---------- Electrical spark animation — runs from a panel toward a powered inverter ----------
@@ -2166,8 +2456,13 @@ function nextMilestone() {
 }
 
 // ---------- Salvage Yard (2000 milestone) ----------
-let carriedScrap = 0;
+let carriedCableScrap = 0;
+let carriedPanelScrap = 0;
 let credits = 0;
+const SCRAP_UNLOCK_CABLE = 1000;
+const SCRAP_UNLOCK_PANEL = 500;
+let givenCableScrap = 0; // lifetime totals given to the cleric — never decrease, gate the water gun
+let givenPanelScrap = 0;
 
 function salvagePanelUnderCrosshair() {
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
@@ -2188,25 +2483,40 @@ function salvagePanelUnderCrosshair() {
   const idx = panels.indexOf(panel);
   if (idx >= 0) panels.splice(idx, 1);
   totalWattsInstalled -= panel.watts;
-  dropScrap(dropPos);
+  dropScrap(dropPos, 'panel');
   showToast('PANEL SALVAGED — PICK UP THE SCRAP');
+}
+
+function updateCleriSigns() {
+  if (!salvageCleric.cableSign) return;
+  updateTextSprite(salvageCleric.cableSign, `${Math.min(givenCableScrap, SCRAP_UNLOCK_CABLE)}/${SCRAP_UNLOCK_CABLE} cable`, { color: '#ffcf8a', border: '#ff9a4d', fontSize: 40 });
+  updateTextSprite(salvageCleric.panelSign, `${Math.min(givenPanelScrap, SCRAP_UNLOCK_PANEL)}/${SCRAP_UNLOCK_PANEL} panel`, { color: '#8aff9e', border: '#4dff88', fontSize: 40 });
 }
 
 function updateSalvagePickups() {
   if (!upgrades.salvageUnlocked) return;
   for (let i = scraps.length - 1; i >= 0; i--) {
     if (scraps[i].position.distanceTo(camera.position) < 1.6) {
+      if (scraps[i].userData.scrapType === 'panel') carriedPanelScrap++; else carriedCableScrap++;
       scene.remove(scraps[i]);
       scraps.splice(i, 1);
-      carriedScrap++;
     }
   }
-  const distToYard = Math.hypot(camera.position.x - SALVAGE_YARD.cx, camera.position.z - SALVAGE_YARD.cz);
-  if (distToYard < SALVAGE_YARD.r && carriedScrap > 0) {
-    const earned = carriedScrap * 10;
+  if (!salvageCleric.pos) return;
+  const distToCleric = Math.hypot(camera.position.x - salvageCleric.pos.x, camera.position.z - salvageCleric.pos.z);
+  if (distToCleric < 3 && (carriedCableScrap > 0 || carriedPanelScrap > 0)) {
+    const earned = (carriedCableScrap + carriedPanelScrap) * 10;
     credits += earned;
-    showToast(`SALVAGED ${carriedScrap} SCRAP → +${earned} CREDITS`);
-    carriedScrap = 0;
+    givenCableScrap += carriedCableScrap;
+    givenPanelScrap += carriedPanelScrap;
+    showToast(`GAVE ${carriedCableScrap} CABLE + ${carriedPanelScrap} PANEL SCRAP → +${earned} CREDITS`);
+    carriedCableScrap = 0;
+    carriedPanelScrap = 0;
+    updateCleriSigns();
+    if (!upgrades.waterGunUnlocked && givenCableScrap >= SCRAP_UNLOCK_CABLE && givenPanelScrap >= SCRAP_UNLOCK_PANEL) {
+      upgrades.waterGunUnlocked = true;
+      showMilestoneBanner('✦', 'WATER GUN UNLOCKED! PRESS 5');
+    }
   }
 }
 
@@ -2270,11 +2580,15 @@ function updateHud() {
     const salvageMsg = upgrades.salvageUnlocked ? ` &nbsp; no cable aimed? <span class="good">RMB</span> salvages a panel` : '';
     weaponLine = `<b>3: Cable Router</b> — ${grabMsg}<br>` +
       `<span class="good">LMB</span> hold on a cable, look to a new point, release to bend it there &nbsp; <span class="good">RMB</span> straighten a bend${salvageMsg}`;
-  } else {
+  } else if (currentWeapon === 4) {
     const selMsg = selectedInverters.size ? ` — <span class="good">${selectedInverters.size}/3 selected</span>` : '';
     weaponLine = `<b>4: Inverter Gun</b>${selMsg}<br>` +
       `<span class="good">LMB</span> fire onto a wall (snaps to grid) &nbsp; <span class="good">RMB</span> tier-0: pick up · big units: select 3 same-tier to combine<br>` +
       `3 adjacent tier-0 units auto-combine &nbsp; <span class="key" style="font-size:11px;">E</span> switch a wired inverter — <span class="bad">exceed its kW rating and it catches fire</span>`;
+  } else {
+    weaponLine = `<b>5: Water Gun</b> — hold <span class="good">LMB</span> to spray<br>` +
+      `switch a burning inverter <b>off</b> first, then spray it and its panels to put the fire out<br>` +
+      `<span class="bad">spraying anything still live destroys it and electrocutes you</span> — operational cables are safe to hit`;
   }
 
   const stars = '★'.repeat(upgrades.goldStars);
@@ -2282,10 +2596,14 @@ function updateHud() {
   const progressMsg = nm ? `next: ${totalConnected}/${nm.count} connected` : 'all milestones reached';
   let salvageLine = '';
   if (upgrades.salvageUnlocked) {
-    salvageLine = `<br>Scrap carried: <b>${carriedScrap}</b> · Credits: <b>${credits}</b> — drop scrap at the Salvage Yard`;
+    salvageLine = `<br>Scrap carried: <b>${carriedCableScrap}</b> cable / <b>${carriedPanelScrap}</b> panel · Credits: <b>${credits}</b> — give it to the cleric at the Salvage Yard`;
+    if (!upgrades.waterGunUnlocked) {
+      salvageLine += `<br>Water Gun: <b>${Math.min(givenCableScrap, SCRAP_UNLOCK_CABLE)}/${SCRAP_UNLOCK_CABLE}</b> cable, <b>${Math.min(givenPanelScrap, SCRAP_UNLOCK_PANEL)}/${SCRAP_UNLOCK_PANEL}</b> panel given`;
+    }
   }
+  const weaponKeys = upgrades.waterGunUnlocked ? '1/2/3/4/5' : '1/2/3/4';
   hud.innerHTML = `${weaponLine}<br>` +
-    `${crouching ? '<span class="bad">crouched</span>' : 'standing'} · ${grounded ? 'grounded' : 'airborne'} · <span class="key" style="font-size:11px;">1</span>/<span class="key" style="font-size:11px;">2</span>/<span class="key" style="font-size:11px;">3</span>/<span class="key" style="font-size:11px;">4</span> switch weapon<br>` +
+    `${crouching ? '<span class="bad">crouched</span>' : 'standing'} · ${grounded ? 'grounded' : 'airborne'} · <span class="key" style="font-size:11px;">${weaponKeys}</span> switch weapon<br>` +
     `Connected: <b>${totalConnected}</b> ${stars} — ${progressMsg}${salvageLine}`;
   const kw = (totalWattsInstalled / 1000).toFixed(2);
   panelCountEl.innerHTML =
@@ -2307,7 +2625,9 @@ function animate() {
   updateElectricalSparks(dt);
   updateInverterProduction(dt);
   updateInverterSignFlash(dt);
+  updateWaterGun(dt);
   updateFires(dt);
+  updateFireSpread(dt);
   if (flashTimer > 0) { flashTimer -= dt; if (flashTimer <= 0) muzzleFlash.intensity = 0; }
   if (reloading) {
     reloadT -= dt;
@@ -2477,7 +2797,7 @@ window.__debug = {
   testFire: () => { fireCooldown = 0; reloading = false; fire(); },
   forceUnlockAreaTool: () => { unlockedAreaTool = true; totalPanelsPlaced = Math.max(totalPanelsPlaced, AREA_TOOL_UNLOCK_COUNT); },
   upgrades, MILESTONES, markPanelConnected, checkMilestones, nextMilestone,
-  getProgress: () => ({ totalConnected, goldStars: upgrades.goldStars, carriedScrap, credits, reached: Array.from(reachedMilestones) }),
+  getProgress: () => ({ totalConnected, goldStars: upgrades.goldStars, carriedCableScrap, carriedPanelScrap, givenCableScrap, givenPanelScrap, credits, reached: Array.from(reachedMilestones) }),
   getWatts: () => totalWattsInstalled,
   bannerState: () => ({ shown: milestoneBannerEl.classList.contains('show'), title: milestoneBannerTitleEl.textContent, stars: milestoneBannerStarsEl.textContent }),
   megaBuildingBoxes, SALVAGE_YARD, scraps, salvagePanelUnderCrosshair, updateSalvagePickups,
@@ -2493,4 +2813,10 @@ window.__debug = {
   getTotalKwh: () => totalKwhProduced, INVERTER_CAPACITY_KW,
   findInverterUnderCrosshair, destroyCable,
   refreshInverterSign, refreshAllInverterSigns, checkLiveOverloads, updateInverterSignFlash, bandForLoadPercent,
+  extinguishInverter, extinguishPanel, isPanelElectrified, isAnchorElectrified, electrocutePlayer,
+  destroyLiveInverterHit, destroyLivePanelHit, raycastWaterTarget, waterSprayTick, updateWaterGun,
+  spreadFireFrom, updateFireSpread, findBuildingContaining, igniteObject,
+  salvageCleric, updateCleriSigns,
+  SCRAP_UNLOCK_CABLE, SCRAP_UNLOCK_PANEL,
+  removeFireEffect,
 };
