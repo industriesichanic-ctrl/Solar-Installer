@@ -150,6 +150,7 @@ const matSpool     = new THREE.MeshStandardMaterial({ color: 0x7a2020, roughness
 const matInverterBody = new THREE.MeshStandardMaterial({ color: 0x2c2f33, roughness: 0.45, metalness: 0.65 });
 const matInverterVent = new THREE.MeshStandardMaterial({ color: 0x1c1e21, roughness: 0.6, metalness: 0.5 });
 const matSpark     = new THREE.MeshBasicMaterial({ color: 0x9fe8ff });
+const matFlexOrange = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.55, metalness: 0.15 });
 
 // ---------- Ground ----------
 const GROUND_SIZE = 280;
@@ -1095,11 +1096,14 @@ function placeInverter(point, normal, tier = 0) {
 
 // live "connected/capacity" readout on the sign, and an overload check that fires even
 // if the inverter was already switched on when the extra wiring landed
+// Sign shows the WHOLE network's connected-vs-capacity total (not just this one unit's
+// own rating) — chaining inverters together pools their capacity, so that's the number
+// that actually determines whether the system is safe.
 function refreshInverterSign(inv) {
-  const { watts } = collectInverterArray(inv);
-  const capacityKw = INVERTER_CAPACITY_KW[Math.min(inv.tier, INVERTER_CAPACITY_KW.length - 1)];
+  const { watts, capacityWatts } = collectInverterNetwork(inv);
   const connectedKw = watts / 1000;
-  const overCapacity = watts > capacityKw * 1000;
+  const capacityKw = capacityWatts / 1000;
+  const overCapacity = watts > capacityWatts;
   updateTextSprite(inv.capacitySign, `${connectedKw.toFixed(1)}/${capacityKw}kW`, {
     color: overCapacity ? '#ff8a7f' : '#ffe9b0',
     border: overCapacity ? '#ff5a3c' : '#ffd54a',
@@ -1111,9 +1115,8 @@ function refreshAllInverterSigns() { inverters.forEach(refreshInverterSign); }
 
 function checkLiveOverloads() {
   for (const inv of inverters.slice()) { // slice: overload mutates the live inverters array mid-loop
-    if (!inv.poweredOn) continue;
-    const { watts } = collectInverterArray(inv);
-    const capacityWatts = INVERTER_CAPACITY_KW[Math.min(inv.tier, INVERTER_CAPACITY_KW.length - 1)] * 1000;
+    if (!inv.poweredOn || !inverters.includes(inv)) continue; // may have just been destroyed by an earlier iteration
+    const { watts, capacityWatts } = collectInverterNetwork(inv);
     if (watts > capacityWatts) triggerInverterOverload(inv, watts, capacityWatts);
   }
 }
@@ -1279,7 +1282,7 @@ function handleInverterRightClick() {
 function toggleInverterSwitch() {
   if (!isLocked) return;
   const inv = findInverterUnderCrosshair();
-  if (!inv) return;
+  if (!inv) { showToast('AIM AT AN INVERTER TO SWITCH IT'); return; }
   if (inv.wiredCables.size === 0) { showToast('NO PANELS WIRED TO THIS INVERTER'); return; }
   if (inv.poweredOn) {
     inv.poweredOn = false;
@@ -1287,8 +1290,7 @@ function toggleInverterSwitch() {
     showToast('SOLAR ARRAY OFFLINE');
     return;
   }
-  const { watts: arrayWatts } = collectInverterArray(inv);
-  const capacityWatts = INVERTER_CAPACITY_KW[inv.tier] * 1000;
+  const { watts: arrayWatts, capacityWatts } = collectInverterNetwork(inv);
   if (arrayWatts > capacityWatts) {
     triggerInverterOverload(inv, arrayWatts, capacityWatts);
     return;
@@ -1580,6 +1582,8 @@ const CABLE_RADIUS = 0.03;
 const CABLE_SNAP_DIST = 0.9;
 const CABLE_FLUSH = 0.045; // how far the cable sits off the surface it's hugging
 const cableUnitGeo = new THREE.CylinderGeometry(CABLE_RADIUS, CABLE_RADIUS, 1, 6);
+const FLEX_CABLE_RADIUS = 0.055; // 16mm 4C+E orange circular flex — inverter-to-inverter links
+const flexUnitGeo = new THREE.CylinderGeometry(FLEX_CABLE_RADIUS, FLEX_CABLE_RADIUS, 1, 8);
 const cables = []; // { rawPoints: {point,normal}[], points: Vector3[] (flat, for scrap-drop), mesh: Group }
 const scraps = [];
 let cableActive = null; // { points: {point,normal}[], startAnchor: {type,obj}, endAnchor, previewLine }
@@ -1630,11 +1634,22 @@ function buildRoutedLegs(rawPoints) {
   return legs;
 }
 
-function buildCableSegment(pt0, n0, pt1, n1, group, rawSegIndex) {
+function buildCableSegment(pt0, n0, pt1, n1, group, rawSegIndex, heavy) {
   const p0 = pt0.clone().addScaledVector(n0, CABLE_FLUSH);
   const p1 = pt1.clone().addScaledVector(n1, CABLE_FLUSH);
   const dir = new THREE.Vector3().subVectors(p1, p0);
   if (dir.length() < 0.02) return;
+
+  if (heavy) {
+    // inverter-to-inverter link: one thick bundled orange flex cord, not dual strands
+    const s = new THREE.Mesh(flexUnitGeo, matFlexOrange);
+    alignCylinderBetween(s, p0, p1);
+    s.castShadow = true;
+    s.userData.rawSegIndex = rawSegIndex;
+    group.add(s);
+    return;
+  }
+
   const dirN = dir.clone().normalize();
   const upRef = Math.abs(dirN.y) > 0.95 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
   const perp = new THREE.Vector3().crossVectors(dir, upRef).normalize().multiplyScalar(0.045);
@@ -1655,8 +1670,10 @@ function rebuildCableMesh(cableObj) {
   if (cableObj.mesh) scene.remove(cableObj.mesh);
   if (cableObj.sparkMesh) { scene.remove(cableObj.sparkMesh); cableObj.sparkMesh = null; }
   const group = new THREE.Group();
+  const heavy = !!(cableObj.startAnchor && cableObj.endAnchor
+    && cableObj.startAnchor.type === 'inverter' && cableObj.endAnchor.type === 'inverter');
   const legs = buildRoutedLegs(cableObj.rawPoints);
-  legs.forEach((leg) => buildCableSegment(leg.a.point, leg.a.normal, leg.b.point, leg.b.normal, group, leg.rawSegIndex));
+  legs.forEach((leg) => buildCableSegment(leg.a.point, leg.a.normal, leg.b.point, leg.b.normal, group, leg.rawSegIndex, heavy));
   group.userData.cableRef = cableObj;
   scene.add(group);
   cableObj.mesh = group;
@@ -1690,13 +1707,14 @@ function findNearestAnchor(point, maxDist) {
 
 function anchorThickness(anchor) { return anchor.type === 'panel' ? PANEL_THICK : INVERTER_THICK; }
 
-// BFS out from an inverter across wired cables to find every panel in its array —
-// stops at any other inverter, so each inverter only "sees" its own local array.
-function collectInverterArray(inv) {
+// BFS out from an inverter across wired cables to find every panel AND every other
+// inverter reachable — inverter-to-inverter cable links now stack capacity together
+// (a chained pair of 20kW inverters can jointly carry 40kW), so the whole connected
+// network shares one combined watts-vs-capacity budget.
+function collectInverterNetwork(startInv) {
   const visitedPanels = new Set();
-  const visitedInverters = new Set([inv]);
-  const queue = [inv];
-  let watts = 0;
+  const visitedInverters = new Set([startInv]);
+  const queue = [startInv];
   while (queue.length) {
     const cur = queue.shift();
     for (const c of cables) {
@@ -1706,14 +1724,18 @@ function collectInverterArray(inv) {
       if (!other) continue;
       if (other.type === 'panel' && !visitedPanels.has(other.obj)) {
         visitedPanels.add(other.obj);
-        watts += other.obj.watts;
         queue.push(other.obj);
       } else if (other.type === 'inverter' && !visitedInverters.has(other.obj)) {
         visitedInverters.add(other.obj);
+        queue.push(other.obj); // keep traversing — chained inverters join the same network
       }
     }
   }
-  return { panels: visitedPanels, watts };
+  let watts = 0;
+  visitedPanels.forEach((p) => { watts += p.watts; });
+  let capacityWatts = 0;
+  visitedInverters.forEach((inv) => { capacityWatts += INVERTER_CAPACITY_KW[Math.min(inv.tier, INVERTER_CAPACITY_KW.length - 1)] * 1000; });
+  return { panels: visitedPanels, inverters: visitedInverters, watts, capacityWatts };
 }
 
 function raycastWorldHit() {
@@ -1908,18 +1930,25 @@ function destroyInverter(inv) {
   selectedInverters.delete(inv);
 }
 
+// Overload takes down the WHOLE connected network, not just the unit that tripped it —
+// chained inverters share one electrical bus, so if it's over capacity everything on
+// it is at risk, matching how they share capacity when healthy.
 function triggerInverterOverload(inv, arrayWatts, capacityWatts) {
-  showDangerBanner(`⚠ OVERLOAD — ${(arrayWatts / 1000).toFixed(1)}kW ARRAY ON A ${(capacityWatts / 1000).toFixed(0)}kW INVERTER`);
-  spawnFireEffect(inv.pos.clone());
-  const { panels: arrayPanels } = collectInverterArray(inv);
+  const { panels: arrayPanels, inverters: networkInverters } = collectInverterNetwork(inv);
+  const unitWord = networkInverters.size > 1 ? `${networkInverters.size}-INVERTER CHAIN` : 'INVERTER';
+  showDangerBanner(`⚠ OVERLOAD — ${(arrayWatts / 1000).toFixed(1)}kW ARRAY ON A ${(capacityWatts / 1000).toFixed(0)}kW ${unitWord}`);
+
+  networkInverters.forEach((netInv) => spawnFireEffect(netInv.pos.clone()));
   let i = 0;
   arrayPanels.forEach((p) => {
     burnPanel(p);
     if (i < 25 && Math.random() < 0.4) spawnFireEffect(p.pos.clone());
     i++;
   });
-  Array.from(inv.wiredCables).forEach((c) => destroyCable(c, false));
-  destroyInverter(inv);
+  networkInverters.forEach((netInv) => {
+    Array.from(netInv.wiredCables).forEach((c) => destroyCable(c, false));
+  });
+  networkInverters.forEach((netInv) => destroyInverter(netInv));
 }
 
 // ---------- Electrical spark animation — runs from a panel toward a powered inverter ----------
@@ -2196,7 +2225,8 @@ function updateHud() {
     const jumpMsg = upgrades.buildingJumpUnlocked
       ? `<br>no nearby panel? click a roof to set a launch point, click another roof to boost-jump there` : '';
     weaponLine = `<b>2: Cable Gun</b> — ${cableMsg}<br>` +
-      `<span class="good">LMB</span> start/extend/finish on panel &nbsp; <span class="good">RMB</span> finish run / remove cable${jumpMsg}`;
+      `<span class="good">LMB</span> start/extend/finish on a panel or inverter &nbsp; <span class="good">RMB</span> finish run / remove cable<br>` +
+      `chain two inverters together with a cable to pool their kW capacity — shown as a heavier orange cable${jumpMsg}`;
   } else if (currentWeapon === 3) {
     const grabMsg = routerGrab ? `<span class="good">bending…</span> release to set` : 'ready';
     const salvageMsg = upgrades.salvageUnlocked ? ` &nbsp; no cable aimed? <span class="good">RMB</span> salvages a panel` : '';
@@ -2419,7 +2449,7 @@ window.__debug = {
   inverters, inverterGroups, fireInverter, pickUpNearestInverter, toggleInverterSwitch, placeInverter,
   getInverterPlacementTarget, testFireInverter: () => { inverterFireCooldown = 0; fireInverter(); },
   findNearestAnchor, updateElectricalSparks,
-  collectInverterArray, triggerInverterOverload, toggleInverterSelection, handleInverterRightClick,
+  collectInverterNetwork, triggerInverterOverload, toggleInverterSelection, handleInverterRightClick,
   selectedInverters, activeFires, updateFires, updateInverterProduction,
   getTotalKwh: () => totalKwhProduced, INVERTER_CAPACITY_KW,
   findInverterUnderCrosshair, destroyCable,
