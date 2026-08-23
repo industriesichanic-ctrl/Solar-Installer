@@ -1094,8 +1094,23 @@ function placeInverter(point, normal, tier = 0) {
   return inv;
 }
 
-// live "connected/capacity" readout on the sign, and an overload check that fires even
-// if the inverter was already switched on when the extra wiring landed
+// live "connected/capacity" readout on the sign, color-banded by load percentage —
+// green up to 50%, yellow 51-85%, red 86-97%, flashing red 98-100%; past 100% the
+// inverter overloads and is destroyed before the sign would ever show it
+const SIGN_BANDS = {
+  green:  { color: '#8aff9e', border: '#4dff88' },
+  yellow: { color: '#ffe066', border: '#ffcf4a' },
+  red:    { color: '#ff8a7f', border: '#ff5a3c' },
+  flashDim: { color: '#7a2a22', border: '#5a1a10' },
+};
+
+function bandForLoadPercent(pct) {
+  if (pct <= 50) return 'green';
+  if (pct <= 85) return 'yellow';
+  if (pct <= 97) return 'red';
+  return 'flash';
+}
+
 // Sign shows the WHOLE network's connected-vs-capacity total (not just this one unit's
 // own rating) — chaining inverters together pools their capacity, so that's the number
 // that actually determines whether the system is safe.
@@ -1103,15 +1118,27 @@ function refreshInverterSign(inv) {
   const { watts, capacityWatts } = collectInverterNetwork(inv);
   const connectedKw = watts / 1000;
   const capacityKw = capacityWatts / 1000;
-  const overCapacity = watts > capacityWatts;
-  updateTextSprite(inv.capacitySign, `${connectedKw.toFixed(1)}/${capacityKw}kW`, {
-    color: overCapacity ? '#ff8a7f' : '#ffe9b0',
-    border: overCapacity ? '#ff5a3c' : '#ffd54a',
-    fontSize: 46,
-  });
+  const pct = capacityWatts > 0 ? (watts / capacityWatts) * 100 : 0;
+  inv.signText = `${connectedKw.toFixed(1)}/${capacityKw}kW`;
+  inv.signBand = bandForLoadPercent(pct);
+  if (inv.signBand !== 'flash') {
+    const style = SIGN_BANDS[inv.signBand];
+    updateTextSprite(inv.capacitySign, inv.signText, { color: style.color, border: style.border, fontSize: 46 });
+  }
+  // the 'flash' band is animated per-frame by updateInverterSignFlash instead
 }
 
 function refreshAllInverterSigns() { inverters.forEach(refreshInverterSign); }
+
+function updateInverterSignFlash(dt) {
+  for (const inv of inverters) {
+    if (inv.signBand !== 'flash') continue;
+    inv.flashTimer = (inv.flashTimer || 0) + dt;
+    const on = Math.floor(inv.flashTimer / 0.3) % 2 === 0;
+    const style = on ? SIGN_BANDS.red : SIGN_BANDS.flashDim;
+    updateTextSprite(inv.capacitySign, inv.signText, { color: style.color, border: style.border, fontSize: 46 });
+  }
+}
 
 function checkLiveOverloads() {
   for (const inv of inverters.slice()) { // slice: overload mutates the live inverters array mid-loop
@@ -1715,6 +1742,18 @@ function collectInverterNetwork(startInv) {
   const visitedPanels = new Set();
   const visitedInverters = new Set([startInv]);
   const queue = [startInv];
+
+  // physically-touching panels form one electrical block with no cable needed between
+  // them — discovering any one member pulls in the whole block, and every member's own
+  // cables get explored too, so one cable from anywhere in the block reaches the rest
+  function admitPanel(p) {
+    if (visitedPanels.has(p)) return;
+    const blockMembers = (p.groupId && groups.has(p.groupId)) ? groups.get(p.groupId) : [p];
+    blockMembers.forEach((member) => {
+      if (!visitedPanels.has(member)) { visitedPanels.add(member); queue.push(member); }
+    });
+  }
+
   while (queue.length) {
     const cur = queue.shift();
     for (const c of cables) {
@@ -1722,9 +1761,8 @@ function collectInverterNetwork(startInv) {
       if (c.startAnchor && c.startAnchor.obj === cur) other = c.endAnchor;
       else if (c.endAnchor && c.endAnchor.obj === cur) other = c.startAnchor;
       if (!other) continue;
-      if (other.type === 'panel' && !visitedPanels.has(other.obj)) {
-        visitedPanels.add(other.obj);
-        queue.push(other.obj);
+      if (other.type === 'panel') {
+        admitPanel(other.obj);
       } else if (other.type === 'inverter' && !visitedInverters.has(other.obj)) {
         visitedInverters.add(other.obj);
         queue.push(other.obj); // keep traversing — chained inverters join the same network
@@ -2268,6 +2306,7 @@ function animate() {
   if (inverterFireCooldown > 0) inverterFireCooldown -= dt;
   updateElectricalSparks(dt);
   updateInverterProduction(dt);
+  updateInverterSignFlash(dt);
   updateFires(dt);
   if (flashTimer > 0) { flashTimer -= dt; if (flashTimer <= 0) muzzleFlash.intensity = 0; }
   if (reloading) {
@@ -2453,5 +2492,5 @@ window.__debug = {
   selectedInverters, activeFires, updateFires, updateInverterProduction,
   getTotalKwh: () => totalKwhProduced, INVERTER_CAPACITY_KW,
   findInverterUnderCrosshair, destroyCable,
-  refreshInverterSign, refreshAllInverterSigns, checkLiveOverloads,
+  refreshInverterSign, refreshAllInverterSigns, checkLiveOverloads, updateInverterSignFlash, bandForLoadPercent,
 };
