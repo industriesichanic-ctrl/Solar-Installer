@@ -182,7 +182,9 @@ const panels = [];               // { mesh, pos: Vector3 }
 groundColliders.push(groundMesh);
 
 function addWallBox(minX, maxX, minZ, maxZ, minY, maxY) {
-  wallColliders.push({ minX, maxX, minZ, maxZ, minY, maxY });
+  const box = { minX, maxX, minZ, maxZ, minY, maxY };
+  wallColliders.push(box);
+  return box;
 }
 
 // ---------- Special zones (market square, park+lake, solar farm, salvage yard) — kept clear of buildings/crates ----------
@@ -234,7 +236,7 @@ function buildBuilding(def) {
   body.userData.isSurface = true;
   scene.add(body);
   placementSurfaces.push(body);
-  addWallBox(minX, maxX, minZ, maxZ, 0, h);
+  const wallRef = addWallBox(minX, maxX, minZ, maxZ, 0, h);
 
   // simple window strips for visual read
   const winMat = new THREE.MeshStandardMaterial({ color: 0x2a3a44, roughness: 0.3, metalness: 0.4, emissive: 0x0b1a22, emissiveIntensity: 0.3 });
@@ -286,7 +288,7 @@ function buildBuilding(def) {
   if (stairSide === 'minX') mkParapetWithGap(true, minX - t / 2, minZ, maxZ); else mkParapet(t, d, minX - t / 2, cz);
   if (stairSide === 'maxX') mkParapetWithGap(true, maxX + t / 2, minZ, maxZ); else mkParapet(t, d, maxX + t / 2, cz);
 
-  return { minX, maxX, minZ, maxZ, topY: h };
+  return { minX, maxX, minZ, maxZ, topY: h, bodyMesh: body, wallRef };
 }
 
 const buildingBoxes = BUILDING_DEFS.map(buildBuilding);
@@ -1977,7 +1979,11 @@ const matFireBillboard = (() => {
 // persistent:false = a brief decorative flash (used for the "hit while live" zap effect);
 // persistent:true = an ongoing fire that stays until removeFireEffect() is called —
 // used for burning inverters/panels that need the water gun to put out
-function spawnFireEffect(pos, persistent = false) {
+// the detailed flame/smoke/light group is expensive (10 meshes + a point light) and is
+// only ever built the first time a fire is actually near the player — a whole array
+// igniting at once far away costs almost nothing until the player goes to look at it
+function buildFireDetail(f) {
+  if (f.group) return;
   const group = new THREE.Group();
   const flames = [];
   for (let i = 0; i < 5; i++) {
@@ -2004,23 +2010,32 @@ function spawnFireEffect(pos, persistent = false) {
   const light = new THREE.PointLight(0xff6a2a, 3.2, 5, 2);
   light.position.y = 0.3;
   group.add(light);
-  group.position.copy(pos);
+  group.position.copy(f.pos);
   scene.add(group);
+  f.group = group;
+  f.flames = flames;
+  f.smokes = smokes;
+  f.light = light;
+}
 
+function spawnFireEffect(pos, persistent = false) {
   const farSprite = new THREE.Sprite(matFireBillboard);
   farSprite.position.copy(pos).addScaledVector(new THREE.Vector3(0, 1, 0), 0.3);
   farSprite.scale.set(1.1, 1.65, 1);
-  farSprite.visible = false;
   scene.add(farSprite);
 
-  const f = { group, flames, smokes, light, farSprite, pos: pos.clone(), t: 4.5, dur: 4.5, persistent, near: true };
+  const f = { group: null, flames: null, smokes: null, light: null, farSprite, pos: pos.clone(), t: 4.5, dur: 4.5, persistent, near: null };
   activeFires.push(f);
+  const near = camera.position.distanceToSquared(pos) < FIRE_LOD_RADIUS * FIRE_LOD_RADIUS;
+  f.near = near;
+  farSprite.visible = !near;
+  if (near) buildFireDetail(f);
   return f;
 }
 
 function removeFireEffect(f) {
   if (!f) return;
-  scene.remove(f.group);
+  if (f.group) scene.remove(f.group);
   if (f.farSprite) scene.remove(f.farSprite);
   const idx = activeFires.indexOf(f);
   if (idx >= 0) activeFires.splice(idx, 1);
@@ -2033,7 +2048,8 @@ function updateFires(dt) {
     const near = camera.position.distanceToSquared(f.pos) < FIRE_LOD_RADIUS * FIRE_LOD_RADIUS;
     if (near !== f.near) {
       f.near = near;
-      f.group.visible = near;
+      if (near) buildFireDetail(f);
+      if (f.group) f.group.visible = near;
       f.farSprite.visible = !near;
     }
     if (!near) {
@@ -2137,9 +2153,6 @@ function findBuildingContaining(x, z) {
   const allBoxes = buildingBoxes.concat(megaBuildingBoxes);
   return allBoxes.find((b) => x >= b.minX - 1 && x <= b.maxX + 1 && z >= b.minZ - 1 && z <= b.maxZ + 1) || null;
 }
-function withinBuildingBox(pos, b) {
-  return pos.x >= b.minX - 1 && pos.x <= b.maxX + 1 && pos.z >= b.minZ - 1 && pos.z <= b.maxZ + 1;
-}
 
 // generic ignite used only by spreading — doesn't touch switch state, just sets it burning
 function igniteObject(type, obj) {
@@ -2147,20 +2160,95 @@ function igniteObject(type, obj) {
   if (type === 'panel') burnPanel(obj);
   obj.burning = true;
   obj.spreadTimer = 0;
-  obj.hasSpread = false;
   obj.fireRecord = spawnFireEffect(obj.pos.clone(), true);
 }
 
-// after 30s left unattended, a burning inverter/panel spreads fire to every other
-// array on the SAME building (regardless of wiring) and along every cable it's part
-// of (regardless of whether that circuit is even powered — fire doesn't care) — this
-// can chain across an entire connected city if everything's cabled together
-function spreadFireFrom(type, obj) {
-  const b = findBuildingContaining(obj.pos.x, obj.pos.z);
-  if (b) {
-    panels.forEach((p) => { if (!p.burning && withinBuildingBox(p.pos, b)) igniteObject('panel', p); });
-    inverters.forEach((inv) => { if (!inv.burning && withinBuildingBox(inv.pos, b)) igniteObject('inverter', inv); });
+// ---------- Building fire + gradual collapse ----------
+// A burning array's fire ticks every 15s: any directly cable-linked object catches
+// instantly (a "whole nearby array" bridges in one tick), while the BUILDING it's
+// mounted on only advances 2 of its (abstracted) 10 fire "blocks" per tick — several
+// ticks are needed before the whole building is alight. Once fully engulfed it
+// collapses over time into a rubble pile.
+const buildingFireState = new Map(); // buildingBox -> { burningBlocks, totalBlocks, demolishing, demolishTimer, rubbleSpawned }
+const SPREAD_INTERVAL = 15;
+const BUILDING_TOTAL_BLOCKS = 10;
+const BUILDING_BLOCKS_PER_TICK = 2;
+const DEMOLISH_DURATION = 14;
+
+function getBuildingFireState(b) {
+  let st = buildingFireState.get(b);
+  if (!st) {
+    st = { burningBlocks: 0, totalBlocks: BUILDING_TOTAL_BLOCKS, demolishing: false, demolishTimer: 0, rubbleSpawned: false };
+    buildingFireState.set(b, st);
   }
+  return st;
+}
+
+function spawnBuildingBlockFire(b) {
+  const wallChoice = Math.floor(Math.random() * 4);
+  const t = Math.random();
+  let x, z;
+  if (wallChoice === 0) { x = b.minX; z = b.minZ + (b.maxZ - b.minZ) * t; }
+  else if (wallChoice === 1) { x = b.maxX; z = b.minZ + (b.maxZ - b.minZ) * t; }
+  else if (wallChoice === 2) { x = b.minX + (b.maxX - b.minX) * t; z = b.minZ; }
+  else { x = b.minX + (b.maxX - b.minX) * t; z = b.maxZ; }
+  const y = rand(1, Math.max(2, b.topY - 1));
+  spawnFireEffect(new THREE.Vector3(x, y, z), true);
+}
+
+function advanceBuildingFire(b) {
+  const st = getBuildingFireState(b);
+  if (st.demolishing || st.rubbleSpawned) return;
+  st.burningBlocks = Math.min(st.totalBlocks, st.burningBlocks + BUILDING_BLOCKS_PER_TICK);
+  spawnBuildingBlockFire(b);
+  if (st.burningBlocks >= st.totalBlocks) {
+    st.demolishing = true;
+    st.demolishTimer = 0;
+    showDangerBanner('🔥 BUILDING FULLY ALIGHT — COLLAPSING');
+  }
+}
+
+function finishDemolition(b, st) {
+  st.rubbleSpawned = true;
+  if (b.bodyMesh) {
+    scene.remove(b.bodyMesh);
+    const pi = placementSurfaces.indexOf(b.bodyMesh);
+    if (pi >= 0) placementSurfaces.splice(pi, 1);
+    const wi = worldMeshes.indexOf(b.bodyMesh);
+    if (wi >= 0) worldMeshes.splice(wi, 1);
+  }
+  if (b.wallRef) {
+    const ci = wallColliders.indexOf(b.wallRef);
+    if (ci >= 0) wallColliders.splice(ci, 1);
+  }
+  const midX = (b.minX + b.maxX) / 2, midZ = (b.minZ + b.maxZ) / 2;
+  const pileRadius = Math.max(2, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) / 2);
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2, rr = Math.random() * pileRadius;
+    const rubble = new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.6, 1.6)), matScrap);
+    rubble.position.set(midX + Math.cos(a) * rr, rand(0.3, 1.2), midZ + Math.sin(a) * rr);
+    rubble.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+    rubble.castShadow = true;
+    rubble.receiveShadow = true;
+    scene.add(rubble);
+    groundColliders.push(rubble); // rubble pile stays walkable
+  }
+}
+
+function updateBuildingDemolition(dt) {
+  buildingFireState.forEach((st, b) => {
+    if (!st.demolishing || st.rubbleSpawned) return;
+    st.demolishTimer += dt;
+    const t = Math.min(1, st.demolishTimer / DEMOLISH_DURATION);
+    if (b.bodyMesh) {
+      b.bodyMesh.scale.y = Math.max(0.02, 1 - t);
+      b.bodyMesh.position.y = (b.topY * (1 - t)) / 2;
+    }
+    if (t >= 1) finishDemolition(b, st);
+  });
+}
+
+function spreadTick(type, obj) {
   cables.forEach((c) => {
     let other = null;
     if (c.startAnchor && c.startAnchor.obj === obj) other = c.endAnchor;
@@ -2169,19 +2257,22 @@ function spreadFireFrom(type, obj) {
     c.burning = true;
     igniteObject(other.type, other.obj);
   });
+  const b = findBuildingContaining(obj.pos.x, obj.pos.z);
+  if (b) advanceBuildingFire(b);
 }
 
 function updateFireSpread(dt) {
   inverters.forEach((inv) => {
-    if (!inv.burning || inv.hasSpread) return;
+    if (!inv.burning) return;
     inv.spreadTimer = (inv.spreadTimer || 0) + dt;
-    if (inv.spreadTimer >= 30) { inv.hasSpread = true; spreadFireFrom('inverter', inv); }
+    if (inv.spreadTimer >= SPREAD_INTERVAL) { inv.spreadTimer -= SPREAD_INTERVAL; spreadTick('inverter', inv); }
   });
   panels.forEach((p) => {
-    if (!p.burning || p.hasSpread) return;
+    if (!p.burning) return;
     p.spreadTimer = (p.spreadTimer || 0) + dt;
-    if (p.spreadTimer >= 30) { p.hasSpread = true; spreadFireFrom('panel', p); }
+    if (p.spreadTimer >= SPREAD_INTERVAL) { p.spreadTimer -= SPREAD_INTERVAL; spreadTick('panel', p); }
   });
+  updateBuildingDemolition(dt);
 }
 
 // spraying a burning-but-switched-off inverter finally, safely tears it down
@@ -2861,7 +2952,8 @@ window.__debug = {
   refreshInverterSign, refreshAllInverterSigns, checkLiveOverloads, updateInverterSignFlash, bandForLoadPercent,
   extinguishInverter, extinguishPanel, isPanelElectrified, isAnchorElectrified, electrocutePlayer,
   destroyLiveInverterHit, destroyLivePanelHit, raycastWaterTarget, waterSprayTick, updateWaterGun,
-  spreadFireFrom, updateFireSpread, findBuildingContaining, igniteObject,
+  spreadTick, updateFireSpread, findBuildingContaining, igniteObject,
+  advanceBuildingFire, getBuildingFireState, updateBuildingDemolition, buildingFireState,
   salvageCleric, updateCleriSigns,
   SCRAP_UNLOCK_CABLE, SCRAP_UNLOCK_PANEL,
   removeFireEffect,
