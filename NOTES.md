@@ -172,19 +172,35 @@ manually turn each inverter off (`E`) before it's safe to approach.
   `buildingBoxes`/`megaBuildingBoxes` entry contains it (footprint/AABB
   check — buildings still aren't real destructible sub-meshes, "blocks" are
   just pre-computed points + a progress counter).
-- **Collapse**: once every block is lit, the building disappears in
-  `DEMOLISH_STEPS` (6) discrete steps, one every `SPREAD_INTERVAL` (15s) —
-  not a continuous tween, so it visibly chunks down in sync with the same
-  cadence fire spreads on. `finishDemolition` then removes the body mesh +
-  wall collider and spawns a walkable rubble pile (10 `DodecahedronGeometry`
-  chunks pushed into `groundColliders`). A fully cabled district really can
-  burn building-to-building and end up as rubble.
-- `finishDemolition` also calls `collapseInstalledEquipment(b)`, which tears
-  down any panels/inverters/cables whose position falls within the building's
-  footprint (with a small margin) and drops a scrap pile on the ground at
-  each one's own `x,z` — so array mounted on a burned-down building ends up
-  as debris at its install spot instead of floating in mid-air once the
-  building mesh is gone.
+- **Collapse**: once every block is lit, `beginBuildingCollapse(b, st)` fires
+  once. It first strips the building's wall/roof/parapet colliders and its
+  body mesh out of `worldMeshes`/`placementSurfaces` (nothing to walk on or
+  raycast against anymore), calls `collapseInstalledEquipment(b)` (below), then
+  builds `st.floorGroups` — an ordered list of mesh groups from top to bottom:
+  the roof + its parapet strips (one group), each window-band row top-down
+  (one per row — these double as "floors" for this purpose), and finally the
+  body mesh itself, flattened to `scale.y = 0.15` so it lands as a floor-thick
+  slab instead of one giant box. `updateBuildingCollapse(dt)` then runs every
+  frame: whichever floor group is "current" free-falls under gravity
+  (`GRAVITY = 26`) until its lowest point reaches the top of the pile so far
+  (`st.pileTop`), at which point it's nudged with a small random tilt, pushed
+  into `groundColliders` (permanently walkable), `st.pileTop` grows by that
+  floor's thickness, and the next floor up starts falling — so the whole
+  building visibly pancakes down floor-by-floor rather than shrinking away or
+  vanishing all at once. `finishDemolition` runs once the last floor lands:
+  marks `st.rubbleSpawned`, scatters a handful of small decorative
+  `DodecahedronGeometry` debris chunks on top of the pile (also walkable). A
+  fully cabled district really can burn building-to-building and end up as
+  rubble.
+- `beginBuildingCollapse` calls `collapseInstalledEquipment(b)` *before* the
+  floors start falling, which tears down any panels/inverters/cables whose
+  position falls within the building's footprint (with a small margin) and
+  drops a scrap pile on the ground at each one's own `x,z` — so array mounted
+  on a burning building falls and lands *before* the structure under it does,
+  rather than floating in mid-air or falling with the floors.
+- The eventual plan (not built yet — **don't build it until asked**) is a
+  Salvage Yard upgrade tool that lets the player clear/salvage these building
+  rubble piles for scrap, similar to panel salvage today.
 - Flame/smoke meshes on a near fire (`buildFireDetail`) no longer
   re-randomize scale/opacity/position every frame — that was both the
   visible "flashing" and most of the per-fire per-frame cost. Each fire now
@@ -248,9 +264,13 @@ spent on anything.
 ## Known simplifications / open threads
 
 - Building "fire blocks" are pre-computed surface points + a progress
-  counter, not real chunked/destructible geometry — a literal block-by-block
-  demolition (actual sub-meshes breaking off and falling) would be a much
-  bigger rebuild.
+  counter, not real chunked/destructible geometry — the collapse itself now
+  animates real floor meshes falling (see Collapse above), but there's still
+  no wall-by-wall destruction, just fire-block progress followed by one
+  scripted floor-drop sequence.
+- No cleanup tool for building rubble piles yet — they accumulate forever
+  and stay walkable. A Salvage Yard upgrade for this is planned but
+  intentionally not built until asked for.
 - No repair/rebuild mechanic for burnt panels or demolished buildings.
 - Credits are tracked but nothing to spend them on yet.
 - The `matFireBillboard` texture is fairly small/simple; could be prettied up
@@ -285,9 +305,17 @@ spent on anything.
 - **Equipment floating after demolition**: a building's panels/inverters/
   cables weren't cleaned up when the building itself collapsed, leaving
   gear floating in mid-air where the wall used to be. Fixed with
-  `collapseInstalledEquipment(b)`, called from `finishDemolition`, which
+  `collapseInstalledEquipment(b)`, called from `beginBuildingCollapse`, which
   tears down anything whose position falls within the building's footprint
   and drops scrap at its own spot.
+- **Floors left floating after "collapse"**: the original demolition only
+  scaled the single body-mesh box down to nothing — the roof, parapets, and
+  decorative window-band meshes were separate objects the old code never
+  touched, so they were left floating at their original height once the body
+  vanished. Fixed by tracking those meshes on the building box
+  (`roofMesh`/`parapetMeshes`/`windowMeshes`) and giving `updateBuildingCollapse`
+  real per-frame fall physics for each of them, landing in sequence into one
+  walkable pile.
 - **Stale `carriedScrap` references**: when the single scrap counter was
   split into `carriedCableScrap`/`carriedPanelScrap`, two leftover reads of
   the old removed variable (in the HUD and `getProgress`) were left behind
