@@ -1365,6 +1365,10 @@ scene.add(ghostAreaMesh);
 const overlay = document.getElementById('overlay');
 const crosshair = document.getElementById('crosshair');
 const hud = document.getElementById('hud');
+const mapWrap = document.getElementById('mapWrap');
+const mapCanvas = document.getElementById('mapCanvas');
+const mapCtx = mapCanvas.getContext('2d');
+const mapHint = document.getElementById('mapHint');
 const panelCountEl = document.getElementById('panelCount');
 const streakToastEl = document.getElementById('streakToast');
 const milestoneBannerEl = document.getElementById('milestoneBanner');
@@ -1442,6 +1446,7 @@ document.addEventListener('keydown', (e) => {
     if (upgrades.gun0Unlocked) setWeapon(0);
     else showToast(`GUN 0 LOCKED — ${totalPowerSystemsActivated}/${POWER_SYSTEMS_FOR_GUN0} POWER SYSTEMS ACTIVATED`);
   }
+  if (e.code === 'KeyM') toggleMap();
   if (e.code === 'KeyX' && upgrades.largePanelUnlocked && currentWeapon === 1) {
     selectedPanelSize = selectedPanelSize === 'small' ? 'large' : 'small';
     showToast(selectedPanelSize === 'large' ? 'LARGE PANEL SELECTED' : 'STANDARD PANEL SELECTED');
@@ -1512,6 +1517,96 @@ document.addEventListener('mouseup', (e) => {
   }
 });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ---------- Radar / full map (M to toggle, scroll to zoom while open) ----------
+let mapOpen = false;
+let mapZoom = 60; // world-unit radius visible from center to edge
+const MAP_ZOOM_MIN = 15, MAP_ZOOM_MAX = 180;
+const MAP_RADAR_RADIUS = 55; // fixed radius for the small always-on corner radar
+const TRAIN_STATION_POS = { cx: -55, cz: -100 }; // midpoint of buildTrain(-90, -20, -100)
+
+function toggleMap() {
+  mapOpen = !mapOpen;
+  mapWrap.classList.toggle('big', mapOpen);
+  mapHint.style.display = mapOpen ? 'block' : 'none';
+}
+document.addEventListener('wheel', (e) => {
+  if (!mapOpen) return;
+  e.preventDefault();
+  mapZoom = Math.max(MAP_ZOOM_MIN, Math.min(MAP_ZOOM_MAX, mapZoom + e.deltaY * 0.12));
+}, { passive: false });
+
+function drawMap() {
+  if (!isLocked) { mapWrap.style.display = 'none'; return; }
+  mapWrap.style.display = 'block';
+  const size = mapCanvas.width;
+  const half = size / 2;
+  const radius = mapOpen ? mapZoom : MAP_RADAR_RADIUS;
+  const scale = half / radius;
+  const px = camera.position.x, pz = camera.position.z;
+  const toXY = (wx, wz) => [half + (wx - px) * scale, half + (wz - pz) * scale];
+
+  mapCtx.clearRect(0, 0, size, size);
+  mapCtx.fillStyle = '#0b1218';
+  mapCtx.fillRect(0, 0, size, size);
+
+  // building footprints, faint, for spatial context
+  mapCtx.fillStyle = 'rgba(120,140,160,0.28)';
+  buildingBoxes.concat(megaBuildingBoxes).forEach((b) => {
+    const [x1, y1] = toXY(b.minX, b.minZ);
+    const [x2, y2] = toXY(b.maxX, b.maxZ);
+    if (x2 < 0 || x1 > size || y2 < 0 || y1 > size) return;
+    mapCtx.fillRect(x1, y1, Math.max(1, x2 - x1), Math.max(1, y2 - y1));
+  });
+
+  const drawDot = (wx, wz, color, r, label) => {
+    const [x, y] = toXY(wx, wz);
+    if (x < -20 || x > size + 20 || y < -20 || y > size + 20) return;
+    mapCtx.beginPath();
+    mapCtx.arc(x, y, r, 0, Math.PI * 2);
+    mapCtx.fillStyle = color;
+    mapCtx.fill();
+    if (label && mapOpen) {
+      mapCtx.fillStyle = '#e8f4ff';
+      mapCtx.font = '11px Segoe UI, Arial';
+      mapCtx.fillText(label, x + r + 3, y + 3);
+    }
+  };
+
+  // static points of interest
+  drawDot(SPECIAL_ZONES[0].cx, SPECIAL_ZONES[0].cz, '#ffcf4a', 5, 'Market');
+  drawDot(SPECIAL_ZONES[1].cx, SPECIAL_ZONES[1].cz, '#4dff88', 5, 'Park');
+  drawDot(SPECIAL_ZONES[2].cx, SPECIAL_ZONES[2].cz, '#ffd54a', 5, 'Solar Farm');
+  drawDot(SALVAGE_YARD.cx, SALVAGE_YARD.cz, '#c9782c', 5, 'Salvage Yard');
+  drawDot(TRAIN_STATION_POS.cx, TRAIN_STATION_POS.cz, '#7fd4ff', 5, 'Station');
+  if (deliveryTruck) drawDot(deliveryTruck.pos.x, deliveryTruck.pos.z, '#9fe8ff', 4, 'Truck');
+
+  // dynamic points of interest — anything currently relevant to interact with
+  inverters.forEach((inv) => { if (inv.poweredOn) drawDot(inv.pos.x, inv.pos.z, '#4dff88', 3); });
+  switchboards.forEach((s) => { if (s.energized) drawDot(s.pos.x, s.pos.z, '#ffe066', 3); });
+  buildingFireState.forEach((st, b) => {
+    if (st.demolishing && !st.rubbleSpawned) drawDot((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, '#ff5a3c', 5, mapOpen ? 'Fire' : undefined);
+  });
+
+  // player marker + facing wedge (canvas y = world z; yaw=0 faces -Z, i.e. "up" here)
+  mapCtx.save();
+  mapCtx.translate(half, half);
+  mapCtx.rotate(-yaw);
+  mapCtx.beginPath();
+  mapCtx.moveTo(0, -8);
+  mapCtx.lineTo(5, 6);
+  mapCtx.lineTo(-5, 6);
+  mapCtx.closePath();
+  mapCtx.fillStyle = '#ffffff';
+  mapCtx.fill();
+  mapCtx.restore();
+
+  if (mapOpen) {
+    mapCtx.fillStyle = 'rgba(200,220,255,0.7)';
+    mapCtx.font = 'bold 13px Segoe UI, Arial';
+    mapCtx.fillText('N', half - 5, 16);
+  }
+}
 
 // ---------- Ammo state ----------
 let ammo = MAG_SIZE;
@@ -3081,9 +3176,14 @@ function removeCableUnderCrosshair() {
 // capacity -> fire, smoke, the inverter is destroyed, its direct cables burn away,
 // and every panel in the array is charred (visually disabled, left in place) ----------
 const activeFires = [];
-const FIRE_LOD_RADIUS = 16; // full animated fire (incl. the point light) only this close; a
-                             // cheap static billboard stands in everywhere else, since a
-                             // city-wide spread can have many simultaneous fires at once
+// Fires are static billboards (one shared canvas texture, no per-frame mesh/light
+// updates) everywhere except within this radius, which now only covers "basically on
+// top of it" — the animated 3D flame/smoke/light group (5 cones + 4 spheres + a
+// PointLight) was still the dominant per-fire cost even with the 1-2s flicker
+// throttle, and a big multi-building fire could have dozens of these live at once.
+// Cranked down hard (16 -> 2.5) rather than removed outright, so a couple of fires
+// right next to the player can still glow/flicker, but a burning district stays cheap.
+const FIRE_LOD_RADIUS = 2.5;
 
 // one shared texture/material for every far-fire billboard — cheap to instance many of
 const matFireBillboard = (() => {
@@ -4226,6 +4326,7 @@ function animate() {
     if (milestoneBannerTimer <= 0) milestoneBannerEl.classList.remove('show');
   }
   if (isLocked) updateSalvagePickups();
+  drawMap();
   updateDeliveryTruck();
 
   if (isLocked) {
@@ -4424,4 +4525,6 @@ window.__debug = {
   getTotalBatteryKwh: () => totalBatteryKwhInstalled,
   getPowerSystemsActivated: () => totalPowerSystemsActivated,
   setPowerSystemsActivated: (v) => { totalPowerSystemsActivated = v; },
+  toggleMap, drawMap, mapOpen: () => mapOpen, mapZoom: () => mapZoom,
+  setMapZoom: (v) => { mapZoom = v; }, mapCanvas,
 };

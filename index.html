@@ -36,6 +36,24 @@
   #hud .bad { color: #ff8a7f; }
   #hud .good { color: #8aff9e; }
 
+  #mapWrap {
+    position: fixed; left: 16px; top: 16px; z-index: 5; display: none;
+    width: 160px; height: 160px; border-radius: 50%; overflow: hidden;
+    background: rgba(8,12,16,0.72); border: 2px solid rgba(127,212,255,0.55);
+    box-shadow: 0 0 14px rgba(0,0,0,0.5); transition: width 0.18s ease, height 0.18s ease;
+  }
+  #mapWrap.big {
+    left: 50%; top: 50%; width: 640px; height: 640px;
+    transform: translate(-50%, -50%);
+    border-color: rgba(127,212,255,0.85); box-shadow: 0 0 40px rgba(0,0,0,0.7);
+  }
+  #mapCanvas { width: 100%; height: 100%; display: block; }
+  #mapHint {
+    position: fixed; left: 16px; top: 180px; z-index: 5; display: none;
+    font-family: 'Segoe UI', Arial, sans-serif; color: #a9c4d8; font-size: 11px;
+    background: rgba(10,16,22,0.5); border-radius: 5px; padding: 3px 7px;
+  }
+
   #panelCount {
     position: fixed; right: 16px; top: 16px; z-index: 5; display: none;
     font-family: 'Segoe UI', Arial, sans-serif; color: #ffe08a;
@@ -90,10 +108,12 @@
     <p>Panels touching each other in a grid combine their wattage into one block automatically — no cable needed between them — so one cable from anywhere in a 100-panel block carries the whole block's total to the inverter. Its sign shows load as a percentage: green under 50%, yellow 51-85%, red 86-97%, flashing red 98-100%, and past 100% it overloads.</p>
     <p><b>Fire is dangerous and spreads.</b> An overloaded inverter and its array stay on fire (and stay live/electrified) until you deal with it — left alone for 30 seconds, the fire spreads to everything else on the same building and along every cable it's connected to, even into unrelated arrays, potentially setting a whole cabled-together district alight.</p>
     <p>Give <b>1000 cable scrap + 500 panel scrap</b> to the salvage cleric (walk up close to them at the Salvage Yard) to unlock the <b>Water Gun</b> (<span class="key">5</span>). Switch a burning inverter <b>off</b> first (<span class="key">E</span>), then hold <span class="key">Left Click</span> to spray it and its panels out. <b>Spraying anything still live destroys it and electrocutes you</b> (respawn) — operational cables are safe to hit, but a burning, still-live cable is fatal too.</p>
-    <p><span class="key">Esc</span> release mouse</p>
+    <p><span class="key">M</span> toggle full map (scroll wheel to zoom) · <span class="key">Esc</span> release mouse</p>
   </div>
   <div id="crosshair"></div>
   <div id="hud"></div>
+  <div id="mapWrap"><canvas id="mapCanvas" width="640" height="640"></canvas></div>
+  <div id="mapHint">M: close &nbsp; scroll: zoom</div>
   <div id="panelCount"></div>
   <div id="streakToast"></div>
   <div id="milestoneBanner"><div class="stars"></div><div class="title"></div><div class="sub">MILESTONE REACHED</div></div>
@@ -105,6 +125,6 @@
     }
   }
   </script>
-  <script type="module" src="./main.js?v=8"></script>
+  <script type="module" src="./main.js?v=9"></script>
 </body>
 </html>

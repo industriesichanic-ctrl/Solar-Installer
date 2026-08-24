@@ -29,6 +29,17 @@ already has its remote configured (`origin` → the GitHub repo above), so
 fails with "repository not found" or similar, check `git remote -v` — the
 remote URL must exactly match the repo name/owner on GitHub.
 
+**Browser caching**: `index.html` loads the game via
+`<script type="module" src="./main.js?v=N">` — bump `N` whenever `main.js`
+changes and gets pushed. Without a new query string, some browsers keep
+serving a cached copy of the old `main.js` even after GitHub Pages has
+redeployed the new one, which shows up as "I fixed that bug but the live
+site still does the old thing" — confusing, since local testing (a fresh
+`node --check` + fresh page load against the dev server) will correctly show
+the fix working. If a live-site bug report doesn't reproduce locally, check
+the cache-buster got bumped before assuming it's a real regression; if it
+still doesn't clear, tell the user to hard-refresh (Ctrl+Shift+R).
+
 ## Player / movement
 
 Standard Half-Life/Crysis-style FPS controller: WASD move, Shift sprint,
@@ -352,15 +363,54 @@ manually turn each inverter off (`E`) before it's safe to approach.
 
 ### Performance (fire LOD)
 
-Fires beyond `FIRE_LOD_RADIUS` (16m) show a cheap static billboard sprite
-(one shared canvas texture/material, `matFireBillboard`) and skip **all**
-per-frame animation. The detailed group (5 flame cones + 4 smoke spheres + a
-`PointLight` — the expensive part) is now built **lazily**, only the first
-time a fire is actually near the player (`buildFireDetail`), not at ignition
-— so a whole array catching fire far from the player costs almost nothing
-until they go look at it. If a big fire still causes slowdown, the likely
-next lever is capping simultaneous *near* fires or reducing per-fire mesh
-count further, not the LOD radius itself.
+Fires beyond `FIRE_LOD_RADIUS` show a cheap static billboard sprite (one
+shared canvas texture/material, `matFireBillboard`) and skip **all**
+per-frame animation — for a far fire, `updateFires` only decrements a
+non-persistent fire's remaining-life timer, nothing else. The detailed group
+(5 flame cones + 4 smoke spheres + a `PointLight` — the expensive part) is
+built **lazily**, only the first time a fire is actually within
+`FIRE_LOD_RADIUS` of the player (`buildFireDetail`), not at ignition.
+`FIRE_LOD_RADIUS` was cranked down hard, **16 → 2.5**, after a live report of
+a city-wide fire spread tanking framerate — even with the 1-2s flicker
+throttle, dozens of simultaneously-near animated 3D flame groups (each with
+its own `PointLight`, and dynamic lights are usually the dominant cost) was
+still too much. At 2.5 a fire has to be almost point-blank before it
+animates at all; everywhere else it's a static image, exactly matching a
+direct "just make it a still image, animation isn't worth the framerate"
+ask. If more headroom is ever needed, the next lever is capping simultaneous
+*near* fires outright, not shrinking the radius further (it's already close
+to as small as it can go while still doing anything).
+
+## Radar / full map
+
+A 2D canvas overlay (`#mapWrap`/`#mapCanvas` in `index.html`, always
+640×640 internally regardless of on-screen size — CSS just scales it down
+for the small corner radar), drawn top-down: canvas x = world x, canvas y =
+world z. `drawMap()` runs every frame from the main loop, gated on
+`isLocked`. Two modes, one draw function:
+- **Radar** (default): fixed 160px circle top-left, fixed `MAP_RADAR_RADIUS`
+  (55 world units) always centered on the player. No labels (too small to
+  read), just colored dots.
+- **Full map**: `M` toggles `mapOpen` (`toggleMap`), which CSS-transitions
+  the same wrapper to a large centered 640px circle (`.big` class) and shows
+  the `#mapHint` reminder. While open, the `wheel` listener (registered with
+  `{ passive: false }` so it can `preventDefault` — otherwise the page would
+  scroll) adjusts `mapZoom` between `MAP_ZOOM_MIN`/`MAP_ZOOM_MAX` (15-180
+  world-unit radius), and labels are drawn next to each dot.
+Both modes share the same `toXY(worldX, worldZ)` transform (centered on
+`camera.position`, scaled by `radius`) and the same point-of-interest list:
+building footprints (faint background rectangles, from
+`buildingBoxes`/`megaBuildingBoxes`), the four `SPECIAL_ZONES` (market/park/
+solar farm/salvage yard), the train station (`TRAIN_STATION_POS`, a
+hardcoded midpoint of `buildTrain`'s span since there's no zone object for
+it), the delivery truck once spawned, every powered-on inverter, every
+energized switchboard, and any building currently mid-collapse
+(`buildingFireState`, red dot) — i.e. everything currently relevant to what
+the player might want to walk toward. The player is a white wedge at center,
+rotated by `-yaw` to point in the camera's facing direction (canvas 2D
+`rotate` is clockwise-positive; yaw's sign convention needed the negation to
+match — verified live by placing the camera at a known offset from a known
+POI and reading back the exact expected canvas pixel color/position).
 
 ## Progression
 
