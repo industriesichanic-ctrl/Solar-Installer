@@ -34,6 +34,15 @@ const INVERTER_THICK = 0.2;
 const INVERTER_CAPACITY_KW = [3, 10, 20, 50]; // per tier: standard, big, bigger, biggest
 const PANEL_THICK = 0.06;
 const MIN_PANEL_SPACING = PANEL_SIZE * 0.92;
+const BATTERY_CAPACITY_KWH = [2, 5, 20, 50]; // per tier, mirrors INVERTER_CAPACITY_KW's non-linear scaling
+const BATTERY_MERGE_COUNT = 5; // 5 same-tier batteries combine into 1 of the next tier
+const BATTERY_STEP = 0.8;
+const BATTERY_THICK = 0.25;
+const BATTERY_DIMS = [{ w: 0.3, h: 0.5 }, { w: 0.45, h: 0.65 }, { w: 0.7, h: 0.95 }, { w: 1.0, h: 1.3 }];
+const SWITCHBOARD_DIMS = { w: 0.5, h: 0.7 };
+const SWITCHBOARD_THICK = 0.15;
+const SWITCHBOARD_UNLOCK_KWH = 100; // total installed battery kWh needed before switchboards can be placed
+const POWER_SYSTEMS_FOR_GUN0 = 20; // successful "SOLAR ARRAY ONLINE" events needed to unlock gun 0
 
 function rand(a, b) { return a + Math.random() * (b - a); }
 
@@ -77,6 +86,7 @@ const upgrades = {
   largePanelUnlocked: false, salvageUnlocked: false, buildingJumpUnlocked: false, goldStars: 0, waterGunUnlocked: false,
   powderUnlocked: false, blockPlacementUnlocked: false, deliveryUnlocked: false,
   shopUnlocked: false, demoToolUnlocked: false, demoToolTier: 0, weapon6Unlocked: false, weapon7Unlocked: false,
+  gun0Unlocked: false, switchboardUnlocked: false,
 };
 function effStandHeight() { return EYE_HEIGHT_STAND * upgrades.heightMul; }
 function effCrouchHeight() { return EYE_HEIGHT_CROUCH * upgrades.heightMul; }
@@ -839,6 +849,43 @@ function scatterRoofHvac(count, boxes) {
 scatterWallHvac(12, buildingBoxes);
 scatterRoofHvac(8, buildingBoxes.concat(megaBuildingBoxes));
 
+// ---------- Street lamps — one per stair-equipped building, near its floor-access base.
+// Off by default; a nearby energized switchboard (see applyNearbyLighting) turns them on
+// along with that building's window lights. ----------
+const streetLamps = [];
+function buildStreetLamp(x, z) {
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 3.2, 8), matRail);
+  pole.position.set(x, 1.6, z);
+  pole.castShadow = true;
+  scene.add(pole);
+  const bulbMat = new THREE.MeshStandardMaterial({ color: 0x555555, emissive: 0x000000, emissiveIntensity: 0 });
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), bulbMat);
+  bulb.position.set(x, 3.25, z);
+  scene.add(bulb);
+  const light = new THREE.PointLight(0xffcf8a, 0, 10, 2);
+  light.position.set(x, 3.25, z);
+  scene.add(light);
+  return { pole, bulb, light, pos: new THREE.Vector3(x, 0, z) };
+}
+function setStreetLampOn(lamp, on) {
+  lamp.bulb.material.color.setHex(on ? 0xffe9b0 : 0x555555);
+  lamp.bulb.material.emissive.setHex(on ? 0xffcf7a : 0x000000);
+  lamp.bulb.material.emissiveIntensity = on ? 1.2 : 0;
+  lamp.light.intensity = on ? 3.5 : 0;
+}
+BUILDING_DEFS.forEach((def, i) => {
+  if (!def.stairSide) return;
+  const b = buildingBoxes[i];
+  const side = def.stairSide;
+  const alongX = side === 'minX' || side === 'maxX';
+  const sign = (side === 'minX' || side === 'minZ') ? -1 : 1;
+  const wallCoord = alongX ? (side === 'minX' ? b.minX : b.maxX) : (side === 'minZ' ? b.minZ : b.maxZ);
+  const midOther = alongX ? (b.minZ + b.maxZ) / 2 : (b.minX + b.maxX) / 2;
+  const lampCoord = wallCoord + sign * 3.5;
+  const lx = alongX ? lampCoord : midOther, lz = alongX ? midOther : lampCoord;
+  streetLamps.push(buildStreetLamp(lx, lz));
+});
+
 // ---------- Salvage Yard (unlocked at the 2000-connected milestone) ----------
 // A warehouse with pallet racking behind a fenced, paved hard stand, entered through
 // an archway. A desk out front is staffed by two clerics who take donated scrap and
@@ -1274,6 +1321,22 @@ demoToolGroup.position.set(0.22, -0.2, -0.4);
 demoToolGroup.visible = false;
 camera.add(demoToolGroup);
 
+// ---------- Gun 0 view model (batteries + switchboards) ----------
+const gun0Group = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.11, 0.3), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const cell = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.18, 0.1), new THREE.MeshStandardMaterial({ color: 0x2f6a3a, roughness: 0.5, metalness: 0.3 }));
+  cell.position.set(0, 0.06, -0.05);
+  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.16, 8), matToolBody);
+  muzzle.rotation.x = Math.PI / 2;
+  muzzle.position.set(0, 0, -0.28);
+  gun0Group.add(body, cell, muzzle);
+}
+gun0Group.position.set(0.22, -0.2, -0.4);
+gun0Group.visible = false;
+camera.add(gun0Group);
+
 // ---------- Placement ghost preview ----------
 const ghostGeo = new THREE.BoxGeometry(PANEL_SIZE, PANEL_THICK, PANEL_SIZE);
 const ghostGeoLarge = new THREE.BoxGeometry(PANEL_SIZE_LARGE, PANEL_THICK, PANEL_SIZE_LARGE);
@@ -1319,6 +1382,7 @@ function setWeapon(w) {
   repairGunGroup.visible = w === 6;
   bulkInverterGunGroup.visible = w === 7;
   demoToolGroup.visible = w === 8;
+  gun0Group.visible = w === 0;
   mouseDown = false;
   if (w === 2) cancelCable();
   if (routerGrab) { if (routerGrab.previewLine) scene.remove(routerGrab.previewLine); routerGrab = null; }
@@ -1371,6 +1435,10 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit8') {
     if (upgrades.demoToolUnlocked) setWeapon(8);
     else showToast('DEMO TOOL LOCKED — BUY IT AT THE SALVAGE YARD WEAPON SHOP (100 GIVEN ROCK + TIMBER TO UNLOCK IT FOR SALE)');
+  }
+  if (e.code === 'Digit0') {
+    if (upgrades.gun0Unlocked) setWeapon(0);
+    else showToast(`GUN 0 LOCKED — ${totalPowerSystemsActivated}/${POWER_SYSTEMS_FOR_GUN0} POWER SYSTEMS ACTIVATED`);
   }
   if (e.code === 'KeyX' && upgrades.largePanelUnlocked && currentWeapon === 1) {
     selectedPanelSize = selectedPanelSize === 'small' ? 'large' : 'small';
@@ -1425,6 +1493,9 @@ document.addEventListener('mousedown', (e) => {
   } else if (currentWeapon === 8) {
     if (e.button === 0) fireDemoTool();
     if (e.button === 2 && upgrades.demoToolTier >= 2) demoDrag = { collected: 0, tick: 0 };
+  } else if (currentWeapon === 0) {
+    if (e.button === 0) fireBattery();
+    if (e.button === 2) fireSwitchboard();
   }
 });
 document.addEventListener('mouseup', (e) => {
@@ -1458,6 +1529,7 @@ const inverters = []; // { mesh, pos, normal, tier, groupId, wiredCables: Set<ca
 const inverterGroups = new Map(); // groupId -> Set<inverterObj>, same-tier adjacency clusters awaiting a 3-way merge
 let nextInverterGroupId = 1;
 let totalInvertersPlaced = 0;
+let totalPowerSystemsActivated = 0; // counts every successful "SOLAR ARRAY ONLINE" event, cumulative
 let inverterFireCooldown = 0;
 let totalKwhProduced = 0; // ticks up as any healthy, powered-on inverter produces
 
@@ -1864,12 +1936,268 @@ function mergeInverterGroups(newInv) {
   }
 }
 
+// ---------- Batteries (gun 0, LMB) — combine BATTERY_MERGE_COUNT (5) at a time like
+// inverters, but every tier auto-merges by proximity (no manual RMB-select tier, since
+// RMB on this gun places switchboards instead) ----------
+const matBatteryBody = new THREE.MeshStandardMaterial({ color: 0x2f6a3a, roughness: 0.5, metalness: 0.3 });
+const batteries = [];
+const batteryGroups = new Map();
+let nextBatteryGroupId = 1;
+let totalBatteryKwhInstalled = 0;
+
+const BATTERY_SNAP_RADIUS = BATTERY_STEP * 1.9;
+function getBatteryPlacementTarget() {
+  const hit = findInverterPlacementHit(); // walls only, same placement rule as inverters
+  if (!hit) return null;
+  let nearest = null, nearestDist = BATTERY_SNAP_RADIUS;
+  for (const b of batteries) {
+    const dist = b.pos.distanceTo(hit.point);
+    if (dist < nearestDist) { nearestDist = dist; nearest = b; }
+  }
+  if (!nearest) return { point: hit.point, normal: hit.normal, snapped: false };
+  const q = nearest.mesh.quaternion;
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  const candidates = [
+    nearest.pos.clone().addScaledVector(right, BATTERY_STEP),
+    nearest.pos.clone().addScaledVector(right, -BATTERY_STEP),
+    nearest.pos.clone().addScaledVector(fwd, BATTERY_STEP),
+    nearest.pos.clone().addScaledVector(fwd, -BATTERY_STEP),
+  ];
+  let best = candidates[0], bestDist = Infinity;
+  for (const c of candidates) { const dd = c.distanceTo(hit.point); if (dd < bestDist) { bestDist = dd; best = c; } }
+  const snappedNormal = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+  return { point: best, normal: snappedNormal, snapped: true };
+}
+function isBatterySpotFree(point) {
+  for (const b of batteries) if (b.pos.distanceTo(point) < BATTERY_STEP * 0.85) return false;
+  return true;
+}
+function createBatteryMesh(point, normal, tier) {
+  const dims = BATTERY_DIMS[Math.min(tier, BATTERY_DIMS.length - 1)];
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(dims.w, BATTERY_THICK, dims.h), matBatteryBody);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  body.userData.isSurface = true;
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(dims.w * 0.8, 0.02, dims.h * 0.15), matPanelFrame);
+  stripe.position.set(0, BATTERY_THICK / 2 + 0.005, 0);
+  group.add(body, stripe);
+  const kwh = BATTERY_CAPACITY_KWH[Math.min(tier, BATTERY_CAPACITY_KWH.length - 1)];
+  const sign = makeTextSprite(`${kwh}kWh`, { fontSize: 40, color: '#8affc9', border: '#4dffa0', scale: 0.3 });
+  sign.position.set(0, BATTERY_THICK / 2 + 0.22, dims.h * 0.4);
+  group.add(sign);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, BATTERY_THICK / 2 + 0.01);
+  return { group, body };
+}
+function batteriesAdjacent(a, b) {
+  return a.tier === b.tier && a.pos.distanceTo(b.pos) < BATTERY_STEP * 1.15 && a.normal.dot(b.normal) > 0.9;
+}
+function placeBattery(point, normal, tier = 0) {
+  const { group, body } = createBatteryMesh(point, normal, tier);
+  scene.add(group);
+  worldMeshes.push(body);
+  const battery = { mesh: group, pos: point.clone(), normal: normal.clone(), tier, groupId: null, wiredCables: new Set() };
+  batteries.push(battery);
+  totalBatteryKwhInstalled += BATTERY_CAPACITY_KWH[Math.min(tier, BATTERY_CAPACITY_KWH.length - 1)];
+  mergeBatteryGroups(battery);
+  maybeUnlockSwitchboards();
+  return battery;
+}
+function removeBatteryFromWorld(battery) {
+  scene.remove(battery.mesh);
+  const wi = worldMeshes.indexOf(battery.mesh.children[0]);
+  if (wi >= 0) worldMeshes.splice(wi, 1);
+  const idx = batteries.indexOf(battery);
+  if (idx >= 0) batteries.splice(idx, 1);
+  totalBatteryKwhInstalled -= BATTERY_CAPACITY_KWH[Math.min(battery.tier, BATTERY_CAPACITY_KWH.length - 1)];
+}
+function finalizeBatteryMerge(members) {
+  const centroid = members[0].pos.clone();
+  for (let i = 1; i < members.length; i++) centroid.add(members[i].pos);
+  centroid.divideScalar(members.length);
+  const normal = members[0].normal.clone();
+  const newTier = members[0].tier + 1;
+  const wiredCables = new Set();
+  members.forEach((b) => { b.wiredCables.forEach((c) => wiredCables.add(c)); });
+  const tierNames = ['STANDARD', 'BIG', 'BIGGER', 'BIGGEST'];
+  showMilestoneBanner('🔋', `${members.length} BATTERIES COMBINED — ${tierNames[Math.min(newTier, tierNames.length - 1)]} BANK!`);
+  const merged = placeBattery(centroid, normal, newTier);
+  merged.wiredCables = wiredCables;
+  cables.forEach((c) => {
+    if (c.startAnchor && c.startAnchor.type === 'battery' && members.includes(c.startAnchor.obj)) c.startAnchor.obj = merged;
+    if (c.endAnchor && c.endAnchor.type === 'battery' && members.includes(c.endAnchor.obj)) c.endAnchor.obj = merged;
+  });
+  updateSwitchboardEnergize();
+  return merged;
+}
+function combineBatteries(members, groupId, group) {
+  members.forEach((b) => { removeBatteryFromWorld(b); group.delete(b); });
+  batteryGroups.delete(groupId);
+  finalizeBatteryMerge(members);
+}
+function mergeBatteryGroups(newBattery) {
+  const touchedIds = new Set();
+  for (const other of batteries) {
+    if (other === newBattery || !other.groupId) continue;
+    if (batteriesAdjacent(newBattery, other)) touchedIds.add(other.groupId);
+  }
+  let mergedId;
+  if (touchedIds.size === 0) {
+    mergedId = nextBatteryGroupId++;
+    batteryGroups.set(mergedId, new Set());
+  } else {
+    const ids = Array.from(touchedIds);
+    mergedId = ids[0];
+    const mergedSet = batteryGroups.get(mergedId);
+    for (let i = 1; i < ids.length; i++) {
+      const other = batteryGroups.get(ids[i]);
+      other.forEach((p) => { p.groupId = mergedId; mergedSet.add(p); });
+      batteryGroups.delete(ids[i]);
+    }
+  }
+  const finalGroup = batteryGroups.get(mergedId);
+  finalGroup.add(newBattery);
+  newBattery.groupId = mergedId;
+  while (finalGroup.size >= BATTERY_MERGE_COUNT) {
+    const members = Array.from(finalGroup).slice(0, BATTERY_MERGE_COUNT);
+    combineBatteries(members, mergedId, finalGroup);
+    break; // combineBatteries may recurse into a fresh merge pass of its own
+  }
+}
+
+function maybeUnlockSwitchboards() {
+  if (!upgrades.switchboardUnlocked && totalBatteryKwhInstalled >= SWITCHBOARD_UNLOCK_KWH) {
+    upgrades.switchboardUnlocked = true;
+    showMilestoneBanner('🔌', `SWITCHBOARDS UNLOCKED! ${SWITCHBOARD_UNLOCK_KWH}kWh OF BATTERIES INSTALLED — RMB WITH GUN 0 TO PLACE ONE`);
+  }
+}
+
+// ---------- Switchboards (gun 0, RMB, unlocked once 100kWh of batteries are installed)
+// — wire batteries to inverters, and inverters to a switchboard, to energize it. An
+// energized switchboard turns on its building's window lights and any nearby street
+// lamps (see updateSwitchboardEnergize/applyNearbyLighting). ----------
+const matSwitchboardBody = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.5, metalness: 0.4 });
+const switchboards = [];
+function createSwitchboardMesh(point, normal) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(SWITCHBOARD_DIMS.w, SWITCHBOARD_THICK, SWITCHBOARD_DIMS.h), matSwitchboardBody);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  body.userData.isSurface = true;
+  const dialMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 });
+  for (let i = 0; i < 3; i++) {
+    const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 10), dialMat);
+    dial.rotation.x = Math.PI / 2;
+    dial.position.set(-0.15 + i * 0.15, SWITCHBOARD_THICK / 2 + 0.011, 0.1);
+    group.add(dial);
+  }
+  group.add(body);
+  const sign = makeTextSprite('OFFLINE', { fontSize: 36, color: '#ff8a7f', border: '#ff5a3c', scale: 0.28 });
+  sign.position.set(0, SWITCHBOARD_THICK / 2 + 0.25, SWITCHBOARD_DIMS.h * 0.4);
+  group.add(sign);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, SWITCHBOARD_THICK / 2 + 0.01);
+  return { group, body, sign };
+}
+function isSwitchboardSpotFree(point) {
+  for (const s of switchboards) if (s.pos.distanceTo(point) < 0.8) return false;
+  return true;
+}
+function placeSwitchboard(point, normal) {
+  const { group, body, sign } = createSwitchboardMesh(point, normal);
+  scene.add(group);
+  worldMeshes.push(body);
+  const swb = { mesh: group, pos: point.clone(), normal: normal.clone(), wiredCables: new Set(), energized: false, sign };
+  switchboards.push(swb);
+  return swb;
+}
+
+// building window lights + nearby street lamps switch on/off together with a switchboard
+function applyNearbyLighting(pos, on) {
+  const b = findBuildingContaining(pos.x, pos.z);
+  if (b && b.windowMeshes) {
+    b.windowMeshes.forEach((wm) => {
+      wm.material.color.setHex(on ? 0xffd98a : 0x2a3a44);
+      wm.material.emissive.setHex(on ? 0xffb347 : 0x0b1a22);
+      wm.material.emissiveIntensity = on ? 1.4 : 0.3;
+    });
+  }
+  streetLamps.forEach((lamp) => {
+    if (lamp.pos.distanceTo(pos) < 20) setStreetLampOn(lamp, on);
+  });
+}
+
+// component-wide check (not strict path-tracing, matching collectInverterNetwork's own
+// fidelity level): a switchboard is energized if its connected cable component contains
+// at least one battery AND at least one powered-on inverter, anywhere in the component
+function isSwitchboardEnergized(swb) {
+  const visitedObjs = new Set([swb]);
+  const queue = [swb];
+  let sawBattery = false, sawPoweredInverter = false;
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const c of cables) {
+      let other = null;
+      if (c.startAnchor && c.startAnchor.obj === cur) other = c.endAnchor;
+      else if (c.endAnchor && c.endAnchor.obj === cur) other = c.startAnchor;
+      if (!other || visitedObjs.has(other.obj)) continue;
+      visitedObjs.add(other.obj);
+      if (other.type === 'battery') sawBattery = true;
+      if (other.type === 'inverter' && other.obj.poweredOn) sawPoweredInverter = true;
+      if (other.type === 'inverter' || other.type === 'switchboard' || other.type === 'battery') queue.push(other.obj);
+    }
+  }
+  return sawBattery && sawPoweredInverter;
+}
+
+function updateSwitchboardEnergize() {
+  switchboards.forEach((swb) => {
+    const now = isSwitchboardEnergized(swb);
+    if (now === swb.energized) return;
+    swb.energized = now;
+    updateTextSprite(swb.sign, now ? 'ENERGIZED' : 'OFFLINE', now
+      ? { fontSize: 36, color: '#8aff9e', border: '#4dff88' }
+      : { fontSize: 36, color: '#ff8a7f', border: '#ff5a3c' });
+    applyNearbyLighting(swb.pos, now);
+  });
+}
+
 function fireInverter() {
   if (inverterFireCooldown > 0) return;
   inverterFireCooldown = 0.28;
   const target = getInverterPlacementTarget();
   if (target && isInverterSpotFree(target.point)) {
     placeInverter(target.point, target.normal, 0);
+  }
+}
+
+// ---------- Gun 0: Batteries (LMB) & Switchboards (RMB) — unlocked at
+// POWER_SYSTEMS_FOR_GUN0 successful array power-ons ----------
+let batteryFireCooldown = 0;
+function fireBattery() {
+  if (batteryFireCooldown > 0) return;
+  batteryFireCooldown = 0.28;
+  const target = getBatteryPlacementTarget();
+  if (target && isBatterySpotFree(target.point)) {
+    placeBattery(target.point, target.normal, 0);
+  }
+}
+let switchboardFireCooldown = 0;
+function fireSwitchboard() {
+  if (!upgrades.switchboardUnlocked) {
+    showToast(`SWITCHBOARDS LOCKED — INSTALL ${SWITCHBOARD_UNLOCK_KWH}kWh OF BATTERIES FIRST (${totalBatteryKwhInstalled}/${SWITCHBOARD_UNLOCK_KWH})`);
+    return;
+  }
+  if (switchboardFireCooldown > 0) return;
+  switchboardFireCooldown = 0.35;
+  const target = getBatteryPlacementTarget(); // reuses the same wall-mount snap logic
+  if (target && isSwitchboardSpotFree(target.point)) {
+    placeSwitchboard(target.point, target.normal);
+    showToast('SWITCHBOARD PLACED — WIRE BATTERIES→INVERTER→SWITCHBOARD TO ENERGIZE IT');
   }
 }
 
@@ -2057,6 +2385,7 @@ function toggleInverterSwitch() {
     inv.poweredOn = false;
     updateInverterIndicator(inv);
     showToast(inv.burning ? 'INVERTER OFF — STILL ON FIRE, SPRAY IT DOWN' : 'SOLAR ARRAY OFFLINE');
+    updateSwitchboardEnergize();
     return;
   }
   if (inv.burning) { showToast('PUT THE FIRE OUT BEFORE SWITCHING IT BACK ON'); return; }
@@ -2073,6 +2402,13 @@ function toggleInverterSwitch() {
     spawnDeliveryTruck();
     showMilestoneBanner('🚚', 'DELIVERY UPGRADE! A TRUCK ARRIVED — WALK UP TO IT FOR AMMO UP TO 150');
   }
+  // each successful power-on counts as one more "separate power system installed"
+  totalPowerSystemsActivated++;
+  if (!upgrades.gun0Unlocked && totalPowerSystemsActivated >= POWER_SYSTEMS_FOR_GUN0) {
+    upgrades.gun0Unlocked = true;
+    showMilestoneBanner('🔋', 'GUN 0 UNLOCKED! PRESS 0 — BATTERIES (LMB) & SWITCHBOARDS (RMB)');
+  }
+  updateSwitchboardEnergize();
 }
 
 // ---------- Area-fill drag tool (unlocked at 100 panels placed) ----------
@@ -2521,10 +2857,23 @@ function findNearestAnchor(point, maxDist) {
     const d = inv.pos.distanceTo(point);
     if (d < bestDist) { bestDist = d; best = inv; bestType = 'inverter'; }
   }
+  for (const b of batteries) {
+    const d = b.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = b; bestType = 'battery'; }
+  }
+  for (const s of switchboards) {
+    const d = s.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = s; bestType = 'switchboard'; }
+  }
   return best ? { obj: best, type: bestType } : null;
 }
 
-function anchorThickness(anchor) { return anchor.type === 'panel' ? PANEL_THICK : INVERTER_THICK; }
+function anchorThickness(anchor) {
+  if (anchor.type === 'panel') return PANEL_THICK;
+  if (anchor.type === 'battery') return BATTERY_THICK;
+  if (anchor.type === 'switchboard') return SWITCHBOARD_THICK;
+  return INVERTER_THICK;
+}
 
 // BFS out from an inverter across wired cables to find every panel AND every other
 // inverter reachable — inverter-to-inverter cable links now stack capacity together
@@ -2630,6 +2979,7 @@ function finishCable() {
   cableActive = null;
   refreshAllInverterSigns();
   checkLiveOverloads(); // wiring more array into an already-running inverter can overload it immediately
+  updateSwitchboardEnergize();
   showToast('CABLE RUN CONNECTED');
 }
 
@@ -2681,12 +3031,13 @@ function dropScrap(point, type = 'cable') {
 }
 
 function unwireAnchor(anchor, cableObj) {
-  if (!anchor || anchor.type !== 'inverter') return;
+  if (!anchor || anchor.type === 'panel') return;
   anchor.obj.wiredCables.delete(cableObj);
-  if (anchor.obj.wiredCables.size === 0 && anchor.obj.poweredOn) {
+  if (anchor.type === 'inverter' && anchor.obj.wiredCables.size === 0 && anchor.obj.poweredOn) {
     anchor.obj.poweredOn = false;
     updateInverterIndicator(anchor.obj);
   }
+  if (anchor.type === 'inverter' || anchor.type === 'battery' || anchor.type === 'switchboard') updateSwitchboardEnergize();
 }
 
 // tears down a cable: drops scrap along its length, unwires either end, removes its mesh
@@ -3257,7 +3608,10 @@ function isPanelElectrified(p) {
 
 function isAnchorElectrified(anchor) {
   if (!anchor) return false;
-  return anchor.type === 'inverter' ? anchor.obj.poweredOn : isPanelElectrified(anchor.obj);
+  if (anchor.type === 'inverter') return anchor.obj.poweredOn;
+  if (anchor.type === 'switchboard') return anchor.obj.energized;
+  if (anchor.type === 'battery') return false; // batteries don't carry mains current in this model
+  return isPanelElectrified(anchor.obj);
 }
 
 function electrocutePlayer() {
@@ -3724,7 +4078,7 @@ function updateHud() {
     const jumpMsg = upgrades.buildingJumpUnlocked
       ? `<br>no nearby panel? click a roof to set a launch point, click another roof to boost-jump there` : '';
     weaponLine = `<b>2: Cable Gun</b> — ${cableMsg}<br>` +
-      `<span class="good">LMB</span> start/extend/finish on a panel or inverter &nbsp; <span class="good">RMB</span> finish run / remove cable<br>` +
+      `<span class="good">LMB</span> start/extend/finish on a panel, inverter, battery, or switchboard &nbsp; <span class="good">RMB</span> finish run / remove cable<br>` +
       `chain two inverters together with a cable to pool their kW capacity — shown as a heavier orange cable${jumpMsg}`;
   } else if (currentWeapon === 3) {
     const grabMsg = routerGrab ? `<span class="good">bending…</span> release to set` : 'ready';
@@ -3758,6 +4112,13 @@ function updateHud() {
         : `next tier at 500 given rock + 500 given timber`;
     weaponLine = `<b>8: Demo Tool</b> (tier ${tier})<br>` +
       `<span class="good">LMB</span> break up a rock/timber rubble chunk for +20<br>${tierMsg}`;
+  } else if (currentWeapon === 0) {
+    const swbMsg = upgrades.switchboardUnlocked
+      ? `<span class="good">RMB</span> fire onto a wall to place a switchboard`
+      : `switchboards: ${totalBatteryKwhInstalled}/${SWITCHBOARD_UNLOCK_KWH}kWh batteries installed`;
+    weaponLine = `<b>0: Battery & Switchboard Gun</b> — ${totalBatteryKwhInstalled}kWh installed<br>` +
+      `<span class="good">LMB</span> fire onto a wall to place a battery (snaps to grid, 5 combine into the next tier) &nbsp; ${swbMsg}<br>` +
+      `wire batteries → an inverter → a switchboard (Cable Gun) to energize it and light up its building + nearby street lamps`;
   }
 
   const stars = '★'.repeat(upgrades.goldStars);
@@ -3782,6 +4143,7 @@ function updateHud() {
   if (upgrades.weapon6Unlocked) weaponKeys.push('6');
   if (upgrades.weapon7Unlocked) weaponKeys.push('7');
   if (upgrades.demoToolUnlocked) weaponKeys.push('8');
+  if (upgrades.gun0Unlocked) weaponKeys.push('0');
   hud.innerHTML = `${weaponLine}<br>` +
     `${crouching ? '<span class="bad">crouched</span>' : 'standing'} · ${grounded ? 'grounded' : 'airborne'} · <span class="key" style="font-size:11px;">${weaponKeys.join('/')}</span> switch weapon<br>` +
     `Connected: <b>${totalConnected}</b> ${stars} — ${progressMsg}${salvageLine}`;
@@ -3802,6 +4164,8 @@ function animate() {
 
   if (fireCooldown > 0) fireCooldown -= dt;
   if (inverterFireCooldown > 0) inverterFireCooldown -= dt;
+  if (batteryFireCooldown > 0) batteryFireCooldown -= dt;
+  if (switchboardFireCooldown > 0) switchboardFireCooldown -= dt;
   if (bulkInverterCooldown > 0) bulkInverterCooldown -= dt;
   if (repairCooldown > 0) repairCooldown -= dt;
   if (demoToolCooldown > 0) demoToolCooldown -= dt;
@@ -4029,4 +4393,10 @@ window.__debug = {
     else if (type === 'rock') givenRockScrap = v;
     else if (type === 'timber') givenTimberScrap = v;
   },
+  batteries, switchboards, streetLamps, placeBattery, placeSwitchboard,
+  fireBattery, fireSwitchboard, updateSwitchboardEnergize, isSwitchboardEnergized,
+  applyNearbyLighting, getBatteryPlacementTarget, isBatterySpotFree, isSwitchboardSpotFree,
+  getTotalBatteryKwh: () => totalBatteryKwhInstalled,
+  getPowerSystemsActivated: () => totalPowerSystemsActivated,
+  setPowerSystemsActivated: (v) => { totalPowerSystemsActivated = v; },
 };

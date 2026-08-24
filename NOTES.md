@@ -114,7 +114,7 @@ added to over time as things are placed/removed:
   callers (e.g. a building) can hang onto a reference and remove just their
   own entry later (used when a building demolishes).
 
-## Weapons (1–8)
+## Weapons (0–8)
 
 1. **Solar Panel Gun** — places panels on any upward or near-vertical
    surface (roofs + walls). **Grid-snaps**: aiming near an existing panel
@@ -209,6 +209,47 @@ added to over time as things are placed/removed:
    plain decorative debris at `finishDemolition` time — this happens
    regardless of whether the Demo Tool has been bought yet, since `E` needs
    something to pick up from the very start.
+0. **Battery & Switchboard Gun** — auto-unlocked once `totalPowerSystemsActivated`
+   (every successful "SOLAR ARRAY ONLINE" event — see `toggleInverterSwitch`,
+   cumulative, never decreases) hits `POWER_SYSTEMS_FOR_GUN0` (20). LMB
+   (`fireBattery`) places a battery on a wall, same grid-snap placement rule
+   as inverters (`getBatteryPlacementTarget` reuses `findInverterPlacementHit`).
+   Batteries combine like inverters but simpler: **every** tier auto-merges
+   by proximity (`mergeBatteryGroups`), `BATTERY_MERGE_COUNT` (5) at a time,
+   through `BATTERY_CAPACITY_KWH = [2, 5, 20, 50]` — 5×2kWh → one 5kWh unit,
+   5×5kWh → one 20kWh unit, 5×20kWh → one 50kWh unit. There's no manual
+   RMB-select merge tier like inverters have, since RMB on this gun is
+   reserved for switchboards instead. `totalBatteryKwhInstalled` tracks the
+   *currently installed* total (decremented in `removeBatteryFromWorld`,
+   same pattern as `totalWattsInstalled` for panels) — cascading merges must
+   subtract the consumed lower-tier units' kWh or the total inflates with
+   phantom energy every merge (caught and fixed before push, see bug
+   history). RMB (`fireSwitchboard`) places a switchboard once
+   `totalBatteryKwhInstalled` reaches `SWITCHBOARD_UNLOCK_KWH` (100) — a
+   one-way unlock, like the water gun's scrap gate, not a live gate that
+   re-locks if kWh later drops back down from more merging.
+
+## Energizing a switchboard (building + street lamps)
+
+The Cable Gun (weapon 2) now also accepts battery and switchboard anchors —
+`findNearestAnchor`/`anchorThickness`/`wireAnchor`/`unwireAnchor`/
+`isAnchorElectrified` were all generalized from their inverter-only form (see
+bug history for what `unwireAnchor` was missing). `isSwitchboardEnergized(swb)`
+does a component-wide BFS from the switchboard across `cables` (not strict
+path-tracing, same fidelity level as `collectInverterNetwork`): energized
+requires the connected component to contain **both** at least one battery
+and at least one powered-on inverter, anywhere in it. `updateSwitchboardEnergize()`
+re-checks every switchboard and is called after `finishCable`, both branches
+of `toggleInverterSwitch`, and (via the generalized `unwireAnchor`) after
+`destroyCable`/battery-merge cable reassignment. On an energized transition,
+`applyNearbyLighting(swb.pos, on)`:
+- finds the building at that position (`findBuildingContaining`) and
+  re-colors its `windowMeshes` (bright warm `0xffd98a` when on, back to the
+  normal dim `0x2a3a44` when off) — the same array the building-collapse
+  floor system already tracks.
+- turns on any `streetLamps` (one per stair-equipped building, placed near
+  its floor-access base, off by default — `buildStreetLamp`/`setStreetLampOn`)
+  within 20 units of the switchboard.
 
 ## Wattage & connectivity
 
@@ -450,6 +491,17 @@ already-owned item both just toast and leave state untouched.
 
 ## Bug history worth knowing (don't reintroduce these)
 
+- **Battery merges inflating installed kWh**: `removeBatteryFromWorld`
+  (called on every battery consumed by a merge) removed the battery from the
+  scene/array but never subtracted its capacity from
+  `totalBatteryKwhInstalled`. Verified live: placing 5×2kWh batteries and
+  letting them auto-merge left the total reading 15kWh instead of 5kWh (the
+  10kWh from the 5 consumed originals never got subtracted, only the new
+  5kWh unit's contribution added on top). Since every further merge repeats
+  the inflation, this would have made `SWITCHBOARD_UNLOCK_KWH` trivially easy
+  to hit regardless of what's actually still standing. Fixed by subtracting
+  in `removeBatteryFromWorld`, mirroring how `totalWattsInstalled` is handled
+  for panels.
 - **Panel Repair Tool double-counting wattage**: the first pass had
   `firePanelRepair` add `p.watts` back into `totalWattsInstalled` on repair,
   on the assumption burning had deducted it. It hadn't — `burnPanel` only
