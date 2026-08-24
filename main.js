@@ -1754,7 +1754,10 @@ document.addEventListener('mousedown', (e) => {
     // Map 2's weapon 1 is the tree cutter (see fire()) — no RMB action, and
     // critically no pickUpNearestPanel, which would otherwise let the player
     // "salvage" the fixed 1MW array anchors right back out of the world
-    if (e.button === 2 && MAP_ID !== 2) {
+    if (e.button === 2 && MAP_ID !== 2 && currentJob === 'plumber') {
+      if (unlockedHeatPumpAreaTool) beginHeatPumpAreaDragCandidate();
+      else pickUpNearestHeatPump();
+    } else if (e.button === 2 && MAP_ID !== 2 && currentJob !== 'plumber') {
       if (unlockedAreaTool) beginAreaDragCandidate();
       else pickUpNearestPanel();
     }
@@ -1792,7 +1795,8 @@ document.addEventListener('mouseup', (e) => {
   }
   if (e.button === 2) {
     rmbDown = false;
-    if (currentWeapon === 1 && unlockedAreaTool) endAreaDrag();
+    if (currentWeapon === 1 && currentJob === 'plumber' && (unlockedHeatPumpAreaTool || hpAreaDrag)) endHeatPumpAreaDrag();
+    else if (currentWeapon === 1 && unlockedAreaTool) endAreaDrag();
     if (currentWeapon === 8 && demoDrag) { showToast(`DRAG COLLECTED ${demoDrag.collected} UNITS`); demoDrag = null; }
   }
 });
@@ -2795,7 +2799,12 @@ function handleInteractKey() {
       return;
     }
   }
-  if (toggleTapUnderCrosshair()) return;
+  // job-gated fallback language — plumbers only ever hear power-switch lingo,
+  // solar installers only ever hear inverter lingo, never mixed
+  if (currentJob === 'plumber') {
+    if (!toggleTapUnderCrosshair()) showToast('AIM AT A POWER SWITCH TO TOGGLE IT');
+    return;
+  }
   toggleInverterSwitch();
 }
 
@@ -4649,8 +4658,12 @@ function updateHud() {
       `clear the trees shading the array so it isn't blocked`;
   } else if (currentWeapon === 1 && currentJob === 'plumber') {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
+    const hpAreaMsg = unlockedHeatPumpAreaTool
+      ? (hpAreaDrag ? `<span class="good">dragging area…</span>` : `hold <span class="good">RMB</span>, look to far corner, release to build`)
+      : `area tool: ${totalHeatPumpsPlaced}/${HEATPUMP_AREA_TOOL_UNLOCK_COUNT} heat pumps`;
     weaponLine = `<b>1: HP Gun</b> (Heat Pump) — ${reloadMsg}<br>` +
-      `<span class="good">LMB</span> fire (snaps to grid, stacks side by side) &nbsp; <span class="good">R</span> reload<br>` +
+      `<span class="good">LMB</span> fire (snaps to grid, stacks side by side) &nbsp; <span class="good">RMB</span> pick up &nbsp; <span class="good">R</span> reload<br>` +
+      `${hpAreaMsg}<br>` +
       `Pipe Gun (2) runs pipes to a water main &nbsp; Power Switch (4) mounts within 1m of a heat pump &nbsp; <span class="key" style="font-size:11px;">E</span> toggle a switch`;
   } else if (currentWeapon === 1) {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
@@ -4896,6 +4909,7 @@ function animate() {
 
   // ghost preview / area-drag preview / cable preview at aim point
   if (isLocked) {
+    ghostHpAreaMesh.visible = false;
     if (currentWeapon === 1 && areaDrag) {
       ghostMesh.visible = false;
       ghostInverterMesh.visible = false;
@@ -4904,17 +4918,22 @@ function animate() {
       ghostMesh.visible = false;
       ghostAreaMesh.visible = false;
       ghostInverterMesh.visible = false;
+    } else if (currentWeapon === 1 && currentJob === 'plumber' && hpAreaDrag) {
+      ghostMesh.visible = false;
+      ghostAreaMesh.visible = false;
+      ghostInverterMesh.visible = false;
+      updateHeatPumpAreaDragPreview();
     } else if (currentWeapon === 1 && currentJob === 'plumber') {
       ghostAreaMesh.visible = false;
       ghostInverterMesh.visible = false;
+      ghostHpAreaMesh.visible = false;
       const target = getHeatPumpPlacementTarget();
       if (target) {
         ghostMesh.visible = true;
-        ghostMesh.geometry = ghostGeo;
+        ghostMesh.geometry = ghostHpAreaMesh.geometry;
         ghostMesh.material = isHeatPumpSpotFree(target.point) ? matGhostGood : matGhostBad;
-        const up = new THREE.Vector3(0, 1, 0);
-        ghostMesh.quaternion.setFromUnitVectors(up, target.normal);
-        ghostMesh.position.copy(target.point).addScaledVector(target.normal, PANEL_THICK / 2 + 0.01);
+        ghostMesh.quaternion.identity(); // tank always stands upright, never tilts to the surface
+        ghostMesh.position.copy(target.point).addScaledVector(target.normal, 0.45);
       } else {
         ghostMesh.visible = false;
       }
@@ -5144,7 +5163,7 @@ function getHeatPumpPlacementTarget() {
     if (dist < nearestDist) { nearestDist = dist; nearest = h; }
   }
   if (!nearest) return { point: hit.point, normal: hit.normal, snapped: false };
-  const q = nearest.mesh.quaternion;
+  const q = nearest.snapQuat || nearest.mesh.quaternion;
   const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
   const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
   const candidates = [
@@ -5162,25 +5181,79 @@ function isHeatPumpSpotFree(point) {
   for (const h of heatPumps) if (h.pos.distanceTo(point) < PANEL_SIZE * 0.92) return false;
   return true;
 }
-function placeHeatPumpTank(point, normal) {
+
+// ---------- Heat pump connectivity groups + streak celebration (mirrors panels) ----------
+const heatPumpGroups = new Map();
+let nextHeatPumpGroupId = 1;
+let totalHeatPumpsPlaced = 0;
+const HEATPUMP_AREA_TOOL_UNLOCK_COUNT = 100;
+let unlockedHeatPumpAreaTool = false;
+function heatPumpsAdjacent(a, b) {
+  return a.pos.distanceTo(b.pos) < PANEL_SIZE * 1.15 && a.normal.dot(b.normal) > 0.9;
+}
+
+function placeHeatPumpTank(point, normal, silent = false) {
   const group = new THREE.Group();
+  // the tank always stands upright (world Y), regardless of the mount surface's tilt —
+  // grid-snap math still respects the actual surface via the separate snapQuat below
   const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.9, 12), matHeatPumpTank);
-  tank.rotation.x = Math.PI / 2;
-  tank.position.y = 0.32;
+  tank.position.y = 0.45;
   tank.castShadow = true;
   tank.receiveShadow = true;
   const band = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.03, 6, 16), matPanelFrame);
   band.rotation.x = Math.PI / 2;
-  band.position.y = 0.32;
+  band.position.y = 0.45;
   group.add(tank, band);
-  const up = new THREE.Vector3(0, 1, 0);
-  group.quaternion.setFromUnitVectors(up, normal);
-  group.position.copy(point).addScaledVector(normal, 0.32);
+  group.position.copy(point).addScaledVector(normal, 0.45);
   scene.add(group);
   groundColliders.push(group);
   worldMeshes.push(tank);
-  const hp = { mesh: group, pos: point.clone(), normal: normal.clone(), wiredCables: new Set() };
+  const snapQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+  const hp = { mesh: group, pos: point.clone(), normal: normal.clone(), snapQuat, wiredCables: new Set(), groupId: null };
   heatPumps.push(hp);
+  totalHeatPumpsPlaced++;
+  if (!unlockedHeatPumpAreaTool && totalHeatPumpsPlaced >= HEATPUMP_AREA_TOOL_UNLOCK_COUNT) {
+    unlockedHeatPumpAreaTool = true;
+    showToast('AREA TOOL UNLOCKED — HOLD RMB, LOOK TO THE FAR CORNER, RELEASE TO BUILD');
+  }
+
+  // merge into whichever adjacent heat pump groups this one touches
+  const touchedGroupIds = new Set();
+  for (const other of heatPumps) {
+    if (other === hp || !other.groupId) continue;
+    if (heatPumpsAdjacent(hp, other)) touchedGroupIds.add(other.groupId);
+  }
+  let prevSize = 0;
+  let mergedId;
+  if (touchedGroupIds.size === 0) {
+    mergedId = nextHeatPumpGroupId++;
+    heatPumpGroups.set(mergedId, new Set());
+  } else {
+    const ids = Array.from(touchedGroupIds);
+    mergedId = ids[0];
+    const mergedSet = heatPumpGroups.get(mergedId);
+    for (let i = 1; i < ids.length; i++) {
+      const other = heatPumpGroups.get(ids[i]);
+      other.forEach((p) => { p.groupId = mergedId; mergedSet.add(p); });
+      heatPumpGroups.delete(ids[i]);
+    }
+    prevSize = mergedSet.size;
+  }
+  const finalGroup = heatPumpGroups.get(mergedId);
+  finalGroup.add(hp);
+  hp.groupId = mergedId;
+
+  if (!silent) {
+    const newSize = finalGroup.size;
+    let hitThreshold = null;
+    for (const th of STREAK_THRESHOLDS) {
+      if (prevSize < th && newSize >= th) hitThreshold = th;
+    }
+    if (hitThreshold) {
+      spawnGroupGlow(finalGroup);
+      showToast(`${hitThreshold} HEAT PUMPS CONNECTED!`);
+    }
+  }
   return hp;
 }
 function fireHeatPumpTank() {
@@ -5192,6 +5265,111 @@ function fireHeatPumpTank() {
   muzzleFlash.intensity = 3.5;
   const target = getHeatPumpPlacementTarget();
   if (target && isHeatPumpSpotFree(target.point)) placeHeatPumpTank(target.point, target.normal);
+}
+
+// ---------- Heat pump area-fill drag tool (unlocked at 100 heat pumps placed) ----------
+let hpAreaDrag = null;
+const ghostHpAreaMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.32, 0.32, 0.9, 12), matGhostGood, MAX_AREA_CELLS);
+ghostHpAreaMesh.visible = false;
+ghostHpAreaMesh.count = 0;
+scene.add(ghostHpAreaMesh);
+
+function beginHeatPumpAreaDragCandidate() {
+  const target = getHeatPumpPlacementTarget();
+  hpAreaDrag = { startYaw: yaw, startPitch: pitch, valid: false, corner: null, normal: null, right: null, fwd: null };
+  if (!target) return;
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), target.normal);
+  hpAreaDrag.corner = target.point.clone();
+  hpAreaDrag.normal = target.normal.clone();
+  hpAreaDrag.right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+  hpAreaDrag.fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  hpAreaDrag.valid = true;
+}
+function computeHeatPumpAreaCells() {
+  if (!hpAreaDrag || !hpAreaDrag.valid) return null;
+  const rayOrigin = camera.position;
+  const rayDir = new THREE.Vector3();
+  camera.getWorldDirection(rayDir);
+  const denom = rayDir.dot(hpAreaDrag.normal);
+  if (Math.abs(denom) < 1e-5) return null;
+  const t = hpAreaDrag.corner.clone().sub(rayOrigin).dot(hpAreaDrag.normal) / denom;
+  if (t < 0 || t > MAX_PLACE_DIST * 2) return null;
+  const aimPoint = rayOrigin.clone().addScaledVector(rayDir, t);
+
+  const rel = aimPoint.clone().sub(hpAreaDrag.corner);
+  let cellU = Math.round(rel.dot(hpAreaDrag.right) / PANEL_SIZE);
+  let cellV = Math.round(rel.dot(hpAreaDrag.fwd) / PANEL_SIZE);
+  cellU = Math.max(-AREA_SPAN_CAP, Math.min(AREA_SPAN_CAP, cellU));
+  cellV = Math.max(-AREA_SPAN_CAP, Math.min(AREA_SPAN_CAP, cellV));
+  const minU = Math.min(0, cellU), maxU = Math.max(0, cellU);
+  const minV = Math.min(0, cellV), maxV = Math.max(0, cellV);
+
+  const cells = [];
+  for (let iu = minU; iu <= maxU; iu++) {
+    for (let iv = minV; iv <= maxV; iv++) {
+      const raw = hpAreaDrag.corner.clone()
+        .addScaledVector(hpAreaDrag.right, iu * PANEL_SIZE)
+        .addScaledVector(hpAreaDrag.fwd, iv * PANEL_SIZE);
+      const onSurface = pointOnPlacementSurface(raw, hpAreaDrag.normal);
+      if (onSurface && isHeatPumpSpotFree(onSurface)) cells.push(onSurface);
+      if (cells.length >= MAX_AREA_CELLS) break;
+    }
+    if (cells.length >= MAX_AREA_CELLS) break;
+  }
+  return { cells, normal: hpAreaDrag.normal };
+}
+function updateHeatPumpAreaDragPreview() {
+  const result = hpAreaDrag && hpAreaDrag.valid ? computeHeatPumpAreaCells() : null;
+  if (!result || result.cells.length === 0) {
+    ghostHpAreaMesh.visible = false;
+    ghostHpAreaMesh.count = 0;
+    return;
+  }
+  const m = new THREE.Matrix4();
+  result.cells.forEach((p, i) => {
+    const pos = p.clone().addScaledVector(result.normal, 0.45);
+    m.compose(pos, new THREE.Quaternion(), new THREE.Vector3(1, 1, 1));
+    ghostHpAreaMesh.setMatrixAt(i, m);
+  });
+  ghostHpAreaMesh.count = result.cells.length;
+  ghostHpAreaMesh.instanceMatrix.needsUpdate = true;
+  ghostHpAreaMesh.visible = true;
+}
+function commitHeatPumpAreaFill() {
+  const result = computeHeatPumpAreaCells();
+  ghostHpAreaMesh.visible = false;
+  ghostHpAreaMesh.count = 0;
+  if (!result || result.cells.length === 0) return;
+  result.cells.forEach((p) => placeHeatPumpTank(p, result.normal, true));
+  showToast(`AREA FILLED: ${result.cells.length} HEAT PUMPS`);
+}
+function endHeatPumpAreaDrag() {
+  if (!hpAreaDrag) return;
+  const gestureSize = Math.abs(yaw - hpAreaDrag.startYaw) + Math.abs(pitch - hpAreaDrag.startPitch);
+  const didDrag = gestureSize > 0.035;
+  if (hpAreaDrag.valid && didDrag) {
+    commitHeatPumpAreaFill();
+  } else {
+    pickUpNearestHeatPump();
+  }
+  ghostHpAreaMesh.visible = false;
+  ghostHpAreaMesh.count = 0;
+  hpAreaDrag = null;
+}
+function pickUpNearestHeatPump() {
+  let best = -1, bestDist = 3.2;
+  for (let i = 0; i < heatPumps.length; i++) {
+    const d = heatPumps[i].pos.distanceTo(camera.position);
+    if (d < bestDist) { bestDist = d; best = i; }
+  }
+  if (best < 0) return;
+  const hp = heatPumps[best];
+  scene.remove(hp.mesh);
+  const gi = groundColliders.indexOf(hp.mesh);
+  if (gi >= 0) groundColliders.splice(gi, 1);
+  if (hp.groupId && heatPumpGroups.has(hp.groupId)) heatPumpGroups.get(hp.groupId).delete(hp);
+  heatPumps.splice(best, 1);
+  ammo = Math.min(Math.max(effMagSize(), ammo), ammo + 1);
 }
 
 const taps = []; // "power switches" — internal name kept for the anchor-graph plumbing below
@@ -5528,4 +5706,8 @@ window.__debug = {
   getHeatPumpPlacementTarget, isHeatPumpSpotFree, getPowerSwitchPlacementTarget, isTapSpotFree,
   placeHeatPumpTank, placeTap, rebuildCableMesh, POWER_SWITCH_RANGE,
   JOB_HUT_X, JOB_HUT_Z, JOB_HUT_R,
+  totalHeatPumpsPlaced: () => totalHeatPumpsPlaced,
+  unlockedHeatPumpAreaTool: () => unlockedHeatPumpAreaTool,
+  forceUnlockHeatPumpAreaTool: () => { unlockedHeatPumpAreaTool = true; totalHeatPumpsPlaced = Math.max(totalHeatPumpsPlaced, HEATPUMP_AREA_TOOL_UNLOCK_COUNT); },
+  pickUpNearestHeatPump, heatPumpGroups,
 };

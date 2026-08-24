@@ -101,6 +101,49 @@ returns `null` far from any heat pump and a valid target within 1m;
 `isTapNetworkComplete` reads `false` before a water main is wired and `true`
 right after; and Solar (placing panels) is unaffected as a regression check.
 
+### Plumbing follow-up fixes (v15)
+
+Four bugs reported after the v14 rebuild, all in the plumbing toolset:
+- **Solar lingo leaking into plumber mode**: `handleInteractKey()`'s `E`
+  fallback unconditionally called `toggleInverterSwitch()` (whose no-target
+  toast is "AIM AT AN INVERTER TO SWITCH IT") regardless of `currentJob`.
+  Now job-gated: in `currentJob === 'plumber'`, `E` only ever calls
+  `toggleTapUnderCrosshair()` and shows "AIM AT A POWER SWITCH TO TOGGLE IT"
+  on a miss, never touching `toggleInverterSwitch()` at all. Solar mode was
+  already fine in the other direction (`toggleTapUnderCrosshair()` fails
+  silently when nothing's hit, so no plumbing lingo could leak into it).
+- **Tanks rendered on their side**: `placeHeatPumpTank`'s cylinder had
+  `tank.rotation.x = Math.PI / 2`, which points the cylinder's axis
+  sideways. Removed — the tank now always stands world-Y-up regardless of
+  the surface it's snapped to (unlike panels, which tilt to match the
+  surface). Since the mesh itself no longer carries the surface orientation,
+  grid-snap math (`getHeatPumpPlacementTarget`'s right/fwd basis for
+  adjacent-cell candidates) now reads a separate `snapQuat` stored on each
+  heat pump object instead of `mesh.quaternion`.
+- **No streak celebration**: heat pumps had no equivalent of panels'
+  touching-adjacency `groups`/`STREAK_THRESHOLDS`/`spawnGroupGlow` system.
+  Added a parallel `heatPumpGroups`/`nextHeatPumpGroupId`/
+  `heatPumpsAdjacent()` mirroring `placePanel`'s merge-on-place block
+  exactly, reusing the same `STREAK_THRESHOLDS` and `spawnGroupGlow` (both
+  generic enough to take either panels or heat pumps, since they only touch
+  `.pos`/`.normal`/`.mesh.quaternion`).
+- **No 100-placement area tool**: added `totalHeatPumpsPlaced` (player
+  placements only, decorative `buildHvacUnit` units don't count),
+  `unlockedHeatPumpAreaTool` at `HEATPUMP_AREA_TOOL_UNLOCK_COUNT` (100), and
+  a full parallel drag-fill tool (`beginHeatPumpAreaDragCandidate`/
+  `computeHeatPumpAreaCells`/`updateHeatPumpAreaDragPreview`/
+  `commitHeatPumpAreaFill`/`endHeatPumpAreaDrag`, `ghostHpAreaMesh`) — same
+  hold-RMB-drag-release mechanic as the Solar Panel Gun's Area Tool, reusing
+  `pointOnPlacementSurface` for surface-footprint clipping. Weapon-1's RMB
+  in the `mousedown`/`mouseup` listeners now branches on `currentJob` before
+  choosing which area tool (or pick-up) to run.
+
+Not yet done: the newest loadout re-spec (`1: HP, 2: Pipe, 3: Switch, 4: AC
+Cable/TPS, 5: MSWB`, plus a full power-on sequence gating the heat pump on
+HP→main→tap wiring *and* a switch→MSWB→breaker→heat-pump-switch chain) is a
+bigger rework than the four bug fixes above and hasn't been started —
+current code still has Power Switch on slot 4 with no MSWB/breaker chain.
+
 ## Mobile / touch controls
 
 `IS_MOBILE` (`window.matchMedia('(pointer: coarse)').matches`, checked once
