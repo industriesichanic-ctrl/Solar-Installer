@@ -85,9 +85,18 @@ added to over time as things are placed/removed:
    banner (see Progression). Unlocks a drag-select **Area Tool** at 100
    panels placed (hold RMB on a start point, look to the far corner,
    release to fill the rectangle — since pointer lock means mouse movement
-   is camera-look, "dragging" is done by swinging the view). Unlocks a
-   **large panel** variant (2× size, teal tint, 350W vs the standard 250W)
-   at 1500 connected panels — toggle with `X`.
+   is camera-look, "dragging" is done by swinging the view). Unlocks
+   **Block Placement** at 1000 panels placed (`BLOCK_PLACE_UNLOCK_COUNT`) —
+   press `B` to toggle; while on, LMB drops a centered 5×5 (25-panel) block
+   in one shot (`computeBlockCells`) instead of a single panel, costing 25
+   ammo per shot (RMB drag-fill still works independently of this toggle).
+   Unlocks a **large panel** variant (2× size, teal tint, 350W vs the
+   standard 250W) at 1500 connected panels — toggle with `X`.
+   Both the Area Tool and Block Placement clip their grid to the actual
+   surface footprint via `pointOnPlacementSurface` (a short raycast back
+   into the surface for each candidate cell) — a cell that would land past
+   the real wall/roof edge, out over open air, is silently dropped instead
+   of placing a floating panel.
 2. **Cable Gun** — connects panels and/or inverters. Left-click a panel or
    inverter to start a run, click again to add waypoints or click another
    panel/inverter to finish; right-click finishes at the last point or
@@ -116,7 +125,14 @@ added to over time as things are placed/removed:
 5. **Water Gun** — unlocked by donating 1000 cable-scrap + 500 panel-scrap
    to the salvage cleric (see Progression/Salvage). Hold left-click to
    spray. See the Fire section for what spraying actually does — it's a
-   real risk, not just a repair tool.
+   real risk, not just a repair tool. Putting out 10 fires (`registerExtinguish`,
+   called from both `extinguishInverter` and `extinguishPanel`) unlocks
+   **powder** (`upgrades.powderUnlocked`, `POWDER_UNLOCK_COUNT = 10`) — hold
+   RMB while spraying (tracked globally via `rmbDown`) to switch the stream
+   to powder (tan-colored instead of blue, `waterStreamMesh.material.color`).
+   Powder still destroys anything still live — it can't repair a live
+   circuit either — but it doesn't conduct back to the player, so
+   `waterSprayTick(powder)` skips `electrocutePlayer()` on that branch.
 
 ## Wattage & connectivity
 
@@ -320,6 +336,17 @@ spent on anything.
   split into `carriedCableScrap`/`carriedPanelScrap`, two leftover reads of
   the old removed variable (in the HUD and `getProgress`) were left behind
   and would have thrown on first render — caught before push.
+- **Area-fill grid painting panels off the edge of a surface**: `computeAreaCells`
+  projected the drag onto an *infinite* math-plane defined by the corner point
+  + surface normal, and `isSpotFree` only checked distance from other panels —
+  neither step confirmed a given grid cell actually landed on real wall/roof
+  geometry, so a wide enough drag (or one aimed near an edge) could place
+  panels floating past the surface's actual boundary, out over open air. This
+  also made the preview look glitchy near edges, since cells with nothing
+  underneath them still rendered. Fixed by adding `pointOnPlacementSurface`
+  (a short raycast from just above each candidate cell straight back into the
+  surface) and rejecting any cell that misses; both `computeAreaCells` and the
+  newer `computeBlockCells` use it now.
 
 ## Testing notes (for whoever picks this up)
 

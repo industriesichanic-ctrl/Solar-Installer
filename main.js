@@ -75,6 +75,7 @@ function updateTextSprite(sprite, text, opts = {}) {
 const upgrades = {
   sprintMul: 1, jumpMul: 1, heightMul: 1, magBonus: 0, reloadMul: 1, fireRateMul: 1,
   largePanelUnlocked: false, salvageUnlocked: false, buildingJumpUnlocked: false, goldStars: 0, waterGunUnlocked: false,
+  powderUnlocked: false, blockPlacementUnlocked: false,
 };
 function effStandHeight() { return EYE_HEIGHT_STAND * upgrades.heightMul; }
 function effCrouchHeight() { return EYE_HEIGHT_CROUCH * upgrades.heightMul; }
@@ -878,13 +879,19 @@ document.addEventListener('keydown', (e) => {
     selectedPanelSize = selectedPanelSize === 'small' ? 'large' : 'small';
     showToast(selectedPanelSize === 'large' ? 'LARGE PANEL SELECTED' : 'STANDARD PANEL SELECTED');
   }
+  if (e.code === 'KeyB' && upgrades.blockPlacementUnlocked && currentWeapon === 1) {
+    blockPlaceMode = !blockPlaceMode;
+    showToast(blockPlaceMode ? `BLOCK MODE: LMB PLACES ${BLOCK_PLACE_SIZE * BLOCK_PLACE_SIZE} PANELS` : 'SINGLE PANEL MODE');
+  }
   if (e.code === 'KeyE') toggleInverterSwitch();
 });
 document.addEventListener('keyup', (e) => keys.delete(e.code));
 
 let mouseDown = false;
+let rmbDown = false; // tracked globally so the water gun can check "is RMB also held" for powder mode
 document.addEventListener('mousedown', (e) => {
   if (!isLocked) return;
+  if (e.button === 2) rmbDown = true;
   if (currentWeapon === 1) {
     if (e.button === 0) mouseDown = true;
     if (e.button === 2) {
@@ -909,7 +916,10 @@ document.addEventListener('mouseup', (e) => {
     mouseDown = false;
     if (currentWeapon === 3) routerLeftUp();
   }
-  if (e.button === 2 && currentWeapon === 1 && unlockedAreaTool) endAreaDrag();
+  if (e.button === 2) {
+    rmbDown = false;
+    if (currentWeapon === 1 && unlockedAreaTool) endAreaDrag();
+  }
 });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -922,6 +932,9 @@ let totalPanelsPlaced = 0;
 let totalWattsInstalled = 0; // sum of every currently-laid panel's nameplate wattage
 const AREA_TOOL_UNLOCK_COUNT = 100;
 let unlockedAreaTool = false;
+const BLOCK_PLACE_UNLOCK_COUNT = 1000;
+const BLOCK_PLACE_SIZE = 5; // 5x5 = 25 panels per LMB shot in block mode
+let blockPlaceMode = false; // toggled with B once unlocked; RMB drag-fill still works independently
 
 // ---------- Inverters (gun 4) ----------
 const inverters = []; // { mesh, pos, normal, tier, groupId, wiredCables: Set<cableObj>, poweredOn, indicatorMat }
@@ -1037,6 +1050,24 @@ function isSpotFree(point, size = PANEL_SIZE) {
     if (p.pos.distanceTo(point) < minDist) return false;
   }
   return true;
+}
+
+const surfaceProbeRay = new THREE.Raycaster();
+// confirms a grid cell actually lands on real surface geometry facing the expected
+// direction (not just an infinite math-plane projection) — without this, a wide
+// area-fill or block-place grid could paint panels floating past a wall's actual
+// edge, out over open air, since the plane itself has no boundary
+function pointOnPlacementSurface(point, normal) {
+  const origin = point.clone().addScaledVector(normal, 0.5);
+  surfaceProbeRay.set(origin, normal.clone().negate());
+  surfaceProbeRay.far = 1.2;
+  const hits = surfaceProbeRay.intersectObjects(placementSurfaces, false);
+  for (const hit of hits) {
+    if (!hit.face) continue;
+    const worldNormal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    if (worldNormal.dot(normal) > 0.85) return hit.point;
+  }
+  return null;
 }
 
 // ---------- Inverter placement, merging, and power switching ----------
@@ -1420,15 +1451,38 @@ function computeAreaCells() {
   const cells = [];
   for (let iu = minU; iu <= maxU; iu++) {
     for (let iv = minV; iv <= maxV; iv++) {
-      const point = areaDrag.corner.clone()
+      const raw = areaDrag.corner.clone()
         .addScaledVector(areaDrag.right, iu * PANEL_SIZE)
         .addScaledVector(areaDrag.fwd, iv * PANEL_SIZE);
-      if (isSpotFree(point)) cells.push(point);
+      // clip to the real surface footprint, not just the infinite math-plane — this is
+      // what keeps the grid from painting panels out past the actual wall/roof edge
+      const onSurface = pointOnPlacementSurface(raw, areaDrag.normal);
+      if (onSurface && isSpotFree(onSurface)) cells.push(onSurface);
       if (cells.length >= MAX_AREA_CELLS) break;
     }
     if (cells.length >= MAX_AREA_CELLS) break;
   }
   return { cells, normal: areaDrag.normal };
+}
+
+// centered block fill for the 1000-panel block-place unlock: same surface-clipped grid
+// logic as the area tool, but anchored on the crosshair's aim point instead of a drag
+function computeBlockCells(target) {
+  if (!target) return null;
+  const size = target.size;
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), target.normal);
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  const half = (BLOCK_PLACE_SIZE - 1) / 2;
+  const cells = [];
+  for (let iu = -half; iu <= half; iu++) {
+    for (let iv = -half; iv <= half; iv++) {
+      const raw = target.point.clone().addScaledVector(right, iu * size).addScaledVector(fwd, iv * size);
+      const onSurface = pointOnPlacementSurface(raw, target.normal);
+      if (onSurface && isSpotFree(onSurface, size)) cells.push(onSurface);
+    }
+  }
+  return { cells, normal: target.normal, size };
 }
 
 function updateAreaDragPreview() {
@@ -1545,6 +1599,10 @@ function placePanel(point, normal, silent = false, size = PANEL_SIZE) {
     unlockedAreaTool = true;
     showToast('AREA TOOL UNLOCKED — HOLD RMB, LOOK TO THE FAR CORNER, RELEASE TO BUILD');
   }
+  if (!upgrades.blockPlacementUnlocked && totalPanelsPlaced >= BLOCK_PLACE_UNLOCK_COUNT) {
+    upgrades.blockPlacementUnlocked = true;
+    showToast(`BLOCK PLACEMENT UNLOCKED — PRESS B TO TOGGLE, LMB DROPS A ${BLOCK_PLACE_SIZE * BLOCK_PLACE_SIZE}-PANEL BLOCK`);
+  }
 
   // merge into whichever adjacent panel groups this one touches
   const touchedGroupIds = new Set();
@@ -1638,6 +1696,21 @@ function pickUpNearestPanel() {
 
 function fire() {
   if (reloading || fireCooldown > 0) return;
+
+  if (blockPlaceMode && upgrades.blockPlacementUnlocked) {
+    const target = getPlacementTarget();
+    const result = target ? computeBlockCells(target) : null;
+    if (!result || result.cells.length === 0) return;
+    if (ammo < result.cells.length) { reload(); return; }
+    fireCooldown = FIRE_COOLDOWN * upgrades.fireRateMul;
+    ammo -= result.cells.length;
+    flashTimer = 0.06;
+    muzzleFlash.intensity = 3.5;
+    result.cells.forEach((p) => placePanel(p, result.normal, true, result.size));
+    showToast(`BLOCK PLACED: ${result.cells.length} PANELS`);
+    return;
+  }
+
   if (ammo <= 0) { reload(); return; }
   fireCooldown = FIRE_COOLDOWN * upgrades.fireRateMul;
   ammo--;
@@ -2427,11 +2500,24 @@ function updateFireSpread(dt) {
 }
 
 // spraying a burning-but-switched-off inverter finally, safely tears it down
+// every successful extinguish (inverter or panel) counts toward the water gun's
+// powder upgrade — see registerExtinguish below
+const POWDER_UNLOCK_COUNT = 10;
+let extinguishedFireCount = 0;
+function registerExtinguish() {
+  extinguishedFireCount++;
+  if (!upgrades.powderUnlocked && extinguishedFireCount >= POWDER_UNLOCK_COUNT) {
+    upgrades.powderUnlocked = true;
+    showToast('POWDER UPGRADE UNLOCKED — HOLD RMB WHILE SPRAYING TO SAFE LIVE GEAR WITHOUT GETTING ELECTROCUTED');
+  }
+}
+
 function extinguishInverter(inv) {
   if (inv.fireRecord) { removeFireEffect(inv.fireRecord); inv.fireRecord = null; }
   showToast('FIRE OUT — INVERTER SAFED');
   Array.from(inv.wiredCables).forEach((c) => destroyCable(c, true)); // cable falls apart, drops scrap
   destroyInverter(inv);
+  registerExtinguish();
 }
 
 // spraying a burning-but-safe (network off) panel puts its fire out; it stays in place,
@@ -2440,6 +2526,7 @@ function extinguishPanel(p) {
   if (p.fireRecord) { removeFireEffect(p.fireRecord); p.fireRecord = null; }
   p.burning = false;
   showToast('PANEL FIRE OUT');
+  registerExtinguish();
 }
 
 // is this panel currently part of ANY powered-on inverter's network? (touching-block +
@@ -2518,34 +2605,52 @@ function raycastWaterTarget() {
   return best;
 }
 
-function waterSprayTick() {
+// powder mode (unlocked at 10 extinguishes, held with RMB while spraying) still
+// destroys anything still live, same as plain water — powder just can't fix a live
+// circuit either — but it doesn't conduct back to the player, so no electrocution
+function waterSprayTick(powder) {
   const hit = raycastWaterTarget();
   if (!hit) return;
 
   if (hit.type === 'inverter') {
     const inv = hit.obj;
     if (inv.poweredOn) {
-      showDangerBanner('⚡ ELECTROCUTED — INVERTER WAS STILL LIVE');
-      destroyLiveInverterHit(inv);
-      electrocutePlayer();
+      if (powder) {
+        showDangerBanner('💨 POWDER SAFED A LIVE INVERTER');
+        destroyLiveInverterHit(inv);
+      } else {
+        showDangerBanner('⚡ ELECTROCUTED — INVERTER WAS STILL LIVE');
+        destroyLiveInverterHit(inv);
+        electrocutePlayer();
+      }
     } else if (inv.burning) {
       extinguishInverter(inv);
     }
   } else if (hit.type === 'panel') {
     const p = hit.obj;
     if (isPanelElectrified(p)) {
-      showDangerBanner('⚡ ELECTROCUTED — PANEL WAS STILL LIVE');
-      destroyLivePanelHit(p);
-      electrocutePlayer();
+      if (powder) {
+        showDangerBanner('💨 POWDER SAFED A LIVE PANEL');
+        destroyLivePanelHit(p);
+      } else {
+        showDangerBanner('⚡ ELECTROCUTED — PANEL WAS STILL LIVE');
+        destroyLivePanelHit(p);
+        electrocutePlayer();
+      }
     } else if (p.burning) {
       extinguishPanel(p);
     }
   } else if (hit.type === 'cable') {
     const c = hit.obj;
     if (c.burning && (isAnchorElectrified(c.startAnchor) || isAnchorElectrified(c.endAnchor))) {
-      showDangerBanner('⚡ ELECTROCUTED — CABLE WAS LIVE AND BURNING');
-      destroyCable(c, false);
-      electrocutePlayer();
+      if (powder) {
+        showDangerBanner('💨 POWDER SAFED A LIVE CABLE');
+        destroyCable(c, false);
+      } else {
+        showDangerBanner('⚡ ELECTROCUTED — CABLE WAS LIVE AND BURNING');
+        destroyCable(c, false);
+        electrocutePlayer();
+      }
     }
     // an operational (non-burning) cable is always safe to spray, whether live or not
   }
@@ -2555,15 +2660,17 @@ function updateWaterGun(dt) {
   if (waterSprayCooldown > 0) waterSprayCooldown -= dt;
   if (!(currentWeapon === 5 && mouseDown && isLocked)) { waterStreamMesh.visible = false; return; }
 
+  const powder = upgrades.powderUnlocked && rmbDown;
   const hit = raycastWaterTarget();
   const gunTip = new THREE.Vector3(0.1, -0.1, -0.4).applyMatrix4(camera.matrixWorld);
   const end = hit ? hit.point : gunTip.clone().addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), WATER_RANGE);
   alignCylinderBetween(waterStreamMesh, gunTip, end);
+  waterStreamMesh.material.color.setHex(powder ? 0xd8c9a0 : 0x69d6ff);
   waterStreamMesh.visible = true;
 
   if (waterSprayCooldown <= 0) {
     waterSprayCooldown = 0.2;
-    waterSprayTick();
+    waterSprayTick(powder);
   }
 }
 
@@ -2851,8 +2958,14 @@ function updateHud() {
       : `area tool: ${totalPanelsPlaced}/${AREA_TOOL_UNLOCK_COUNT} panels`;
     const sizeMsg = upgrades.largePanelUnlocked
       ? `&nbsp; <span class="key" style="font-size:11px;">X</span> panel: <b>${selectedPanelSize}</b>` : '';
-    weaponLine = `<b>1: Solar Panel Gun</b> — ${reloadMsg}${sizeMsg}<br>` +
-      `<span class="good">LMB</span> fire (snaps to grid) &nbsp; <span class="good">RMB</span> pick up &nbsp; <span class="good">R</span> reload<br>` +
+    const blockMsg = upgrades.blockPlacementUnlocked
+      ? `&nbsp; <span class="key" style="font-size:11px;">B</span> block mode: <b>${blockPlaceMode ? 'ON' : 'off'}</b>`
+      : `&nbsp; block placement: ${totalPanelsPlaced}/${BLOCK_PLACE_UNLOCK_COUNT} panels`;
+    const lmbMsg = blockPlaceMode && upgrades.blockPlacementUnlocked
+      ? `<span class="good">LMB</span> fire (${BLOCK_PLACE_SIZE * BLOCK_PLACE_SIZE}-panel block, snaps to grid)`
+      : `<span class="good">LMB</span> fire (snaps to grid)`;
+    weaponLine = `<b>1: Solar Panel Gun</b> — ${reloadMsg}${sizeMsg}${blockMsg}<br>` +
+      `${lmbMsg} &nbsp; <span class="good">RMB</span> pick up &nbsp; <span class="good">R</span> reload<br>` +
       areaMsg;
   } else if (currentWeapon === 2) {
     const cableMsg = cableActive
@@ -2874,9 +2987,12 @@ function updateHud() {
       `<span class="good">LMB</span> fire onto a wall (snaps to grid) &nbsp; <span class="good">RMB</span> tier-0: pick up · big units: select 3 same-tier to combine<br>` +
       `3 adjacent tier-0 units auto-combine &nbsp; <span class="key" style="font-size:11px;">E</span> switch a wired inverter — <span class="bad">exceed its kW rating and it catches fire</span>`;
   } else {
+    const powderMsg = upgrades.powderUnlocked
+      ? `<br>&nbsp; <span class="key" style="font-size:11px;">RMB</span> hold while spraying: <b>powder</b> — safes live gear without electrocuting you`
+      : `<br>&nbsp; powder upgrade: ${extinguishedFireCount}/${POWDER_UNLOCK_COUNT} fires put out`;
     weaponLine = `<b>5: Water Gun</b> — hold <span class="good">LMB</span> to spray<br>` +
       `switch a burning inverter <b>off</b> first, then spray it and its panels to put the fire out<br>` +
-      `<span class="bad">spraying anything still live destroys it and electrocutes you</span> — operational cables are safe to hit`;
+      `<span class="bad">spraying anything still live destroys it and electrocutes you</span> — operational cables are safe to hit${powderMsg}`;
   }
 
   const stars = '★'.repeat(upgrades.goldStars);
@@ -3108,4 +3224,8 @@ window.__debug = {
   salvageCleric, updateCleriSigns,
   SCRAP_UNLOCK_CABLE, SCRAP_UNLOCK_PANEL,
   removeFireEffect,
+  computeBlockCells, blockPlaceMode: () => blockPlaceMode, setBlockPlaceMode: (v) => { blockPlaceMode = v; },
+  BLOCK_PLACE_UNLOCK_COUNT, BLOCK_PLACE_SIZE, POWDER_UNLOCK_COUNT,
+  extinguishedFireCount: () => extinguishedFireCount, registerExtinguish,
+  rmbDown: () => rmbDown, pointOnPlacementSurface,
 };
