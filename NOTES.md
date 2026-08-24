@@ -74,7 +74,7 @@ added to over time as things are placed/removed:
   callers (e.g. a building) can hang onto a reference and remove just their
   own entry later (used when a building demolishes).
 
-## Weapons (1–5)
+## Weapons (1–8)
 
 1. **Solar Panel Gun** — places panels on any upward or near-vertical
    surface (roofs + walls). **Grid-snaps**: aiming near an existing panel
@@ -133,6 +133,24 @@ added to over time as things are placed/removed:
    Powder still destroys anything still live — it can't repair a live
    circuit either — but it doesn't conduct back to the player, so
    `waterSprayTick(powder)` skips `electrocutePlayer()` on that branch.
+6. **Panel Repair Tool** — bought at the Salvage Yard weapon shop (see Weapon
+   shop below), not milestone-gated. LMB aims at a panel; if it's charred
+   (`.burnt`) and not still on fire, restores its clean material. Purely
+   cosmetic — burning never deducted a panel's wattage in the first place
+   (`collectInverterNetwork` doesn't check `.burnt`), so there's no watts
+   change on repair either.
+7. **Bulk Inverter Gun** — also a shop purchase. LMB fires a Tier 1 (10kW)
+   inverter directly onto a wall (`placeInverter(point, normal, 1)`),
+   skipping the normal grind of placing 3 Tier-0 units and waiting for them
+   to auto-merge.
+8. **Demo Tool** — auto-unlocked (not purchased) the first time any building
+   fully collapses (`finishDemolition`). Building rubble piles now spawn 6
+   tagged "rock"/"timber" chunks (`salvageableRubble`, alternating type) on
+   top of the pile alongside the plain decorative debris; LMB aims at one
+   within 8m and converts it into carryable scrap at that spot
+   (`fireDemoTool` → `dropScrap(pos, chunk.type)`), same auto-pickup-by-
+   walking-near-it as any other scrap. This is the only source of rock/timber
+   scrap — they can't be picked up straight off a rubble pile without the tool.
 
 ## Wattage & connectivity
 
@@ -277,23 +295,75 @@ replacement: `reload()` and the panel-pickup ammo trickle
 target to "don't reduce ammo below whatever it already is," specifically so
 neither one claws a truck-topped 150 back down to the ~12-30 normal cap.
 
+## Salvage Yard layout
+
+Rebuilt (see `buildSalvageYard`) as a warehouse-and-hard-stand complex, not
+just a fenced circle. Location/size still keyed off `SALVAGE_YARD` (`cx: 70,
+cz: -110, r: 24` — `r` grew from 14 to fit the new layout; `SPECIAL_ZONES`'
+building-exclusion radius derives from it automatically). Front-to-back
+along Z: fenced paved **hard stand**, an **archway entrance** (two posts + a
+lintel + a "SALVAGE YARD" sign) in a gap in the front fence rail, then the
+**desk 1** counter (2 clerics via `buildPerson`, a sign board with 5 live
+totals), then the **warehouse** (a plain decorative box + flat roof, *not*
+wired into the fire/collapse system) with 3 **pallet racking** frames
+(`buildRack`) holding small stored crates. `SALVAGE_YARD.deskX/deskZ/clericZ`
+are stashed on the zone object once built so `buildShopCounter` (below) can
+place the second desk relative to the first without recomputing the layout.
+
 ## Salvage economy
 
-Unlocked at 2000 connected. Two *separate* scrap types, tracked
-independently:
+Unlocked at 2000 connected. **Five** separate scrap types, each tracked
+independently (`carried*`/`given*` pairs — `Cable`, `Panel`, `Inverter`,
+`Rock`, `Timber`):
 - **Cable scrap** dropped when a cable is removed/destroyed (`destroyCable`
   with `withScrap`), one coil per segment.
 - **Panel scrap** dropped when a panel is salvaged (Cable Router RMB with
   nothing aimed at) or destroyed live by the water gun.
+- **Inverter scrap** dropped whenever an inverter is destroyed — extinguished
+  after a fire, destroyed live by the water gun, or torn down along with its
+  building in `collapseInstalledEquipment`. (This didn't exist before the
+  weapon shop needed a 5th currency — those code paths previously dropped no
+  scrap for the inverter itself, only for its wired cables.)
+- **Rock** and **Timber** scrap only come from the Demo Tool salvaging a
+  tagged rubble chunk on a collapsed building's pile (weapon 8, see above) —
+  there's no other source.
 
-Walking within ~1.6m of dropped scrap auto-picks it up into
-`carriedCableScrap`/`carriedPanelScrap` (`updateSalvagePickups`). Walking
-close (~3m) to the **salvage cleric** NPC at the Salvage Yard auto-donates
-whatever's carried: converts to credits (10 each) and adds to lifetime
-**given** totals (`givenCableScrap`/`givenPanelScrap`, never decrease), shown
-on floating signs above the cleric's head. Reaching 1000 given cable + 500
-given panel scrap unlocks the Water Gun. `credits` are tracked but not yet
-spent on anything.
+`dropScrap(point, type)` gives each type a distinct mesh/material: cable =
+coiled wire (torus), panel = a flat shard (box), inverter = a small dark
+electronics chunk (box), rock = a grey lump (small dodecahedron), timber = a
+splintered beam (thin brown box, `matTimberScrap`).
+
+Walking within ~1.6m of dropped scrap auto-picks it up into the matching
+`carried*` variable (`updateSalvagePickups`). Walking close (~3m) to
+`salvageCleric.pos` (desk 1, both clerics standing behind it) auto-donates
+everything carried at once: converts to credits (10 each) and adds to the
+matching **given** total (never decrease on their own — see Weapon shop for
+the one thing that *does* spend them back down), shown on the 5-line sign
+board behind the desk (`updateCleriSigns`). Reaching 1000 given cable + 500
+given panel unlocks the Water Gun. Reaching `SHOP_UNLOCK_TOTAL` (3000)
+combined across all five given totals unlocks the Weapon shop (below).
+`credits` are tracked but not yet spent on anything.
+
+## Weapon shop (desk 2)
+
+A second counter, lazily built by `buildShopCounter()` the first donation
+that pushes the combined given-total past `SHOP_UNLOCK_TOTAL` — mirrors the
+delivery truck's lazy-spawn pattern. Sits beside desk 1 (`SALVAGE_YARD.deskX
++ standHalfW * 0.55`), staffed by 2 more clerics, selling the items in
+`SHOP_ITEMS` (currently weapon slots 6 and 7 — Panel Repair Tool and Bulk
+Inverter Gun) — each a small prop mesh on the counter with a floating
+name+price tag (`costLine`).
+
+Purchase flow is a global mousedown intercept, not a per-weapon action —
+`findShopItemUnderCrosshair()` runs before the normal weapon-specific
+branching in the `mousedown` listener, and only fires if the crosshair is
+actually on a shop item mesh within 5m, so it can't steal a click meant for
+whatever weapon is currently equipped. RMB → `selectShopItem` (stores
+`selectedShopItem`, shows the cost in a toast). LMB with something selected
+→ `purchaseSelectedShopItem`: checks all 5 given totals meet the item's cost,
+subtracts them (spending the given pool, not the carried one), sets
+`upgrades.weapon{N}Unlocked`, and auto-equips the new weapon. Insufficient
+funds or an already-owned item both just toast and leave state untouched.
 
 ## Known simplifications / open threads
 
@@ -314,6 +384,19 @@ spent on anything.
 
 ## Bug history worth knowing (don't reintroduce these)
 
+- **Panel Repair Tool double-counting wattage**: the first pass had
+  `firePanelRepair` add `p.watts` back into `totalWattsInstalled` on repair,
+  on the assumption burning had deducted it. It hadn't — `burnPanel` only
+  swaps the material, and `collectInverterNetwork` never checks `.burnt`, so
+  a charred panel counts electrically the whole time. Repairing would have
+  silently inflated the installed-watts total every time. Caught before
+  push; repair is now purely cosmetic (see Weapons, #6).
+- **Building-collapse equipment drop mislabeling inverter scrap as panel
+  scrap**: `collapseInstalledEquipment`'s inverter branch called
+  `dropScrap(inv.pos, 'panel')` (a copy-paste leftover from the panel branch
+  right above it) — inverters destroyed by a building collapse were dropping
+  the wrong scrap type. Fixed to `'inverter'` when the inverter-scrap type
+  was added for the weapon shop.
 - **Ground-snap fall-through**: the ground plane mesh was built but never
   actually pushed into `groundColliders`, so stepping off any building (or
   spawning) meant falling forever. Fixed by pushing `groundMesh` into the

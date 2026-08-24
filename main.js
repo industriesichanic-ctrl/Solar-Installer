@@ -76,6 +76,7 @@ const upgrades = {
   sprintMul: 1, jumpMul: 1, heightMul: 1, magBonus: 0, reloadMul: 1, fireRateMul: 1,
   largePanelUnlocked: false, salvageUnlocked: false, buildingJumpUnlocked: false, goldStars: 0, waterGunUnlocked: false,
   powderUnlocked: false, blockPlacementUnlocked: false, deliveryUnlocked: false,
+  shopUnlocked: false, demoToolUnlocked: false, weapon6Unlocked: false, weapon7Unlocked: false,
 };
 function effStandHeight() { return EYE_HEIGHT_STAND * upgrades.heightMul; }
 function effCrouchHeight() { return EYE_HEIGHT_CROUCH * upgrades.heightMul; }
@@ -189,7 +190,7 @@ function addWallBox(minX, maxX, minZ, maxZ, minY, maxY) {
 }
 
 // ---------- Special zones (market square, park+lake, solar farm, salvage yard) — kept clear of buildings/crates ----------
-const SALVAGE_YARD = { cx: 70, cz: -110, r: 14 };
+const SALVAGE_YARD = { cx: 70, cz: -110, r: 24 };
 const salvageCleric = {}; // filled in when the yard is built: { group, pos, cableSign, panelSign }
 const SPECIAL_ZONES = [
   { cx: 118, cz: 0, r: 26 },     // market square
@@ -698,54 +699,260 @@ const megaBuildingBoxes = MEGA_BUILDING_DEFS.map((def) => {
 });
 
 // ---------- Salvage Yard (unlocked at the 2000-connected milestone) ----------
-{
+// A warehouse with pallet racking behind a fenced, paved hard stand, entered through
+// an archway. A desk out front is staffed by two clerics who take donated scrap and
+// track lifetime totals on a sign board. A second counter (built lazily by
+// buildShopCounter, see below) appears once enough has been traded overall, selling
+// weapon upgrades for combinations of the five scrap types.
+function buildSalvageYard() {
   const { cx, cz, r } = SALVAGE_YARD;
-  const yardFloor = new THREE.Mesh(new THREE.CircleGeometry(r, 32), matScrap);
-  yardFloor.rotation.x = -Math.PI / 2;
-  yardFloor.position.set(cx, 0.02, cz);
-  yardFloor.receiveShadow = true;
-  yardFloor.userData.isSurface = true;
-  scene.add(yardFloor);
-  groundColliders.push(yardFloor);
+  const standDepth = r * 1.5; // hard stand runs from the fence back to the warehouse
+  const standHalfW = r * 0.9;
+  const frontZ = cz + standDepth / 2; // fence/entrance side (nearer the road)
+  const backZ = cz - standDepth / 2;  // warehouse side
 
-  // chain-link style fence posts ringing the yard
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    const px = cx + Math.cos(a) * r, pz = cz + Math.sin(a) * r;
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 6), matRail);
-    post.position.set(px, 1.2, pz);
+  // paved hard stand
+  const standFloor = new THREE.Mesh(new THREE.BoxGeometry(standHalfW * 2, 0.06, standDepth), matScrap);
+  standFloor.position.set(cx, 0.02, cz);
+  standFloor.receiveShadow = true;
+  standFloor.userData.isSurface = true;
+  scene.add(standFloor);
+  groundColliders.push(standFloor);
+
+  // perimeter fence with a gap in the front rail for the archway entrance
+  const gapW = 4.5;
+  const fencePosts = [];
+  const addFenceRun = (x1, z1, x2, z2) => {
+    const len = Math.hypot(x2 - x1, z2 - z1);
+    const count = Math.max(2, Math.round(len / 2.5));
+    for (let i = 0; i <= count; i++) {
+      const t = i / count;
+      const px = x1 + (x2 - x1) * t, pz = z1 + (z2 - z1) * t;
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 6), matRail);
+      post.position.set(px, 1.2, pz);
+      scene.add(post);
+      fencePosts.push(post);
+    }
+    if (Math.abs(x2 - x1) > Math.abs(z2 - z1)) addWallBox(Math.min(x1, x2), Math.max(x1, x2), z1 - 0.1, z1 + 0.1, 0, 1.9);
+    else addWallBox(x1 - 0.1, x1 + 0.1, Math.min(z1, z2), Math.max(z1, z2), 0, 1.9);
+  };
+  addFenceRun(cx - standHalfW, frontZ, cx - gapW / 2, frontZ); // front-left, up to the gate gap
+  addFenceRun(cx + gapW / 2, frontZ, cx + standHalfW, frontZ); // front-right
+  addFenceRun(cx - standHalfW, frontZ, cx - standHalfW, backZ); // left side
+  addFenceRun(cx + standHalfW, frontZ, cx + standHalfW, backZ); // right side
+
+  // archway entrance straddling the front gap
+  const archPostGeo = new THREE.CylinderGeometry(0.16, 0.18, 3.4, 8);
+  const archMat = new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 0.7, metalness: 0.2 });
+  [cx - gapW / 2, cx + gapW / 2].forEach((px) => {
+    const post = new THREE.Mesh(archPostGeo, archMat);
+    post.position.set(px, 1.7, frontZ);
+    post.castShadow = true;
     scene.add(post);
-  }
+  });
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(gapW + 0.6, 0.35, 0.35), archMat);
+  lintel.position.set(cx, 3.4, frontZ);
+  lintel.castShadow = true;
+  scene.add(lintel);
+  const archSign = makeTextSprite('SALVAGE YARD', { color: '#ffd54a', border: '#ff9a4d', fontSize: 40, scale: 0.6 });
+  archSign.position.set(cx, 4.1, frontZ);
+  scene.add(archSign);
 
-  // scrap piles decorating the yard
-  for (let i = 0; i < 12; i++) {
-    const a = rand(0, Math.PI * 2), rr = rand(2, r - 3);
-    const px = cx + Math.cos(a) * rr, pz = cz + Math.sin(a) * rr;
-    const pile = new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.5, 1.0)), matScrap);
-    pile.position.set(px, 0.5, pz);
-    pile.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-    pile.castShadow = true;
-    scene.add(pile);
-  }
+  // warehouse — big flat-roofed shed at the back of the yard, purely decorative
+  // (not wired into the fire/collapse system; a simple storage backdrop)
+  const whW = standHalfW * 1.9, whD = r * 0.9, whH = 8.5;
+  const whCz = backZ - whD / 2 - 1;
+  const matWarehouse = new THREE.MeshStandardMaterial({ color: 0x5a5f66, roughness: 0.75, metalness: 0.15 });
+  const warehouse = new THREE.Mesh(new THREE.BoxGeometry(whW, whH, whD), matWarehouse);
+  warehouse.position.set(cx, whH / 2, whCz);
+  warehouse.castShadow = true;
+  warehouse.receiveShadow = true;
+  scene.add(warehouse);
+  addWallBox(cx - whW / 2, cx + whW / 2, whCz - whD / 2, whCz + whD / 2, 0, whH);
+  const whRoof = new THREE.Mesh(new THREE.BoxGeometry(whW + 0.6, 0.4, whD + 0.6), matRoofHighlight);
+  whRoof.position.set(cx, whH + 0.2, whCz);
+  whRoof.castShadow = true;
+  scene.add(whRoof);
+  const whDoor = new THREE.Mesh(new THREE.BoxGeometry(4.5, 5, 0.15), new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.6, metalness: 0.3 }));
+  whDoor.position.set(cx, 2.5, whCz + whD / 2 + 0.02);
+  scene.add(whDoor);
 
-  [[-r + 1.5, 0], [r - 1.5, 0], [0, -r + 1.5], [0, r - 1.5]].forEach(([dx, dz]) => {
+  // pallet racking inside/beside the warehouse — a couple of shelf frames with a
+  // handful of stored crates and scrap piles on each level
+  const rackMat = new THREE.MeshStandardMaterial({ color: 0xc9782c, roughness: 0.6, metalness: 0.4 });
+  const buildRack = (rx, rz, rotY) => {
+    const rack = new THREE.Group();
+    const width = 3.4, depth = 0.8, postH = 3.2;
+    [[-width / 2, -depth / 2], [width / 2, -depth / 2], [-width / 2, depth / 2], [width / 2, depth / 2]].forEach(([px, pz]) => {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.09, postH, 0.09), rackMat);
+      post.position.set(px, postH / 2, pz);
+      rack.add(post);
+    });
+    [1.1, 2.2, postH - 0.15].forEach((shelfY) => {
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(width, 0.06, depth), rackMat);
+      shelf.position.set(0, shelfY, 0);
+      shelf.castShadow = true;
+      shelf.receiveShadow = true;
+      rack.add(shelf);
+      groundColliders.push(shelf);
+      // a couple of stored objects sitting on this level
+      for (let i = 0; i < 2; i++) {
+        const cs = rand(0.35, 0.6);
+        const stored = new THREE.Mesh(new THREE.BoxGeometry(cs, cs, cs), matCrate);
+        stored.position.set(rand(-width / 2 + 0.4, width / 2 - 0.4), shelfY + cs / 2 + 0.03, 0);
+        stored.rotation.y = rand(0, Math.PI);
+        stored.castShadow = true;
+        rack.add(stored);
+      }
+    });
+    rack.position.set(rx, 0, rz);
+    rack.rotation.y = rotY;
+    rack.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(rack);
+  };
+  buildRack(cx - standHalfW * 0.55, whCz, 0);
+  buildRack(cx + standHalfW * 0.55, whCz, 0);
+  buildRack(cx, whCz - whD / 2 + 1.2, Math.PI / 2);
+
+  // desk 1 — the salvage counter, staffed by two clerics, backed by a sign board
+  // tracking lifetime given totals for all five scrap types
+  const deskZ = backZ + 4;
+  const deskMat = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.6, metalness: 0.3 });
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.0, 0.9), deskMat);
+  desk.position.set(cx - standHalfW * 0.4, 0.5, deskZ);
+  desk.castShadow = true;
+  desk.receiveShadow = true;
+  scene.add(desk);
+  groundColliders.push(desk);
+  addWallBox(desk.position.x - 1.6, desk.position.x + 1.6, deskZ - 0.45, deskZ + 0.45, 0, 1.0);
+
+  const clericZ = deskZ - 1.1;
+  salvageCleric.clerics = [
+    buildPerson(desk.position.x - 0.7, clericZ, Math.PI, 'stand'),
+    buildPerson(desk.position.x + 0.7, clericZ, Math.PI, 'talk'),
+  ];
+  salvageCleric.pos = new THREE.Vector3(desk.position.x, 0, deskZ - 0.6); // donate by walking up to the desk
+
+  const board = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.6, 0.1), matWood);
+  board.position.set(desk.position.x, 2.3, clericZ - 1.0);
+  scene.add(board);
+  const signDefs = [
+    ['cableSign', 'cable', '#ffcf8a', '#ff9a4d'],
+    ['panelSign', 'panel', '#8aff9e', '#4dff88'],
+    ['inverterSign', 'inverter', '#9fd4ff', '#4ab0ff'],
+    ['rockSign', 'rock', '#d8d8d8', '#9a9a9a'],
+    ['timberSign', 'timber', '#e0b078', '#a86a3a'],
+  ];
+  signDefs.forEach(([key, label, color, border], i) => {
+    const sign = makeTextSprite(`0 ${label}`, { fontSize: 36, color, border, scale: 0.34 });
+    sign.position.set(desk.position.x, 3.15 - i * 0.42, clericZ - 0.94);
+    scene.add(sign);
+    salvageCleric[key] = sign;
+  });
+
+  [[cx - standHalfW + 1.2, frontZ - 1.2], [cx + standHalfW - 1.2, frontZ - 1.2], [cx - standHalfW + 1.2, backZ + 1.2], [cx + standHalfW - 1.2, backZ + 1.2]].forEach(([bx, bz]) => {
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), new THREE.MeshStandardMaterial({ color: 0xffcf8a, emissive: 0xff9a4d, emissiveIntensity: 1.3 }));
-    bulb.position.set(cx + dx, 2.4, cz + dz);
+    bulb.position.set(bx, 3.6, bz);
     scene.add(bulb);
-    const light = new THREE.PointLight(0xff9a4d, 4, 12, 2);
+    const light = new THREE.PointLight(0xff9a4d, 4, 14, 2);
     light.position.copy(bulb.position);
     scene.add(light);
   });
 
-  // the salvage cleric — give it your scrap by walking up close; its signs track
-  // lifetime totals toward the water gun unlock
-  salvageCleric.group = buildPerson(cx, cz, 0, 'stand');
-  salvageCleric.pos = new THREE.Vector3(cx, 0, cz);
-  salvageCleric.cableSign = makeTextSprite('0/1000 cable', { fontSize: 40, color: '#ffcf8a', border: '#ff9a4d', scale: 0.38 });
-  salvageCleric.cableSign.position.set(0, 2.4, 0);
-  salvageCleric.panelSign = makeTextSprite('0/500 panel', { fontSize: 40, color: '#8aff9e', border: '#4dff88', scale: 0.38 });
-  salvageCleric.panelSign.position.set(0, 2.05, 0);
-  salvageCleric.group.add(salvageCleric.cableSign, salvageCleric.panelSign);
+  SALVAGE_YARD.deskX = desk.position.x;
+  SALVAGE_YARD.deskZ = deskZ;
+  SALVAGE_YARD.clericZ = clericZ;
+  SALVAGE_YARD.standHalfW = standHalfW;
+}
+buildSalvageYard();
+
+// ---------- Weapon shop (second counter) — appears once SHOP_UNLOCK_TOTAL salvage has
+// been given overall (see updateSalvagePickups). Two more clerics staff a second desk;
+// each weapon sits on the counter with a floating price tag. RMB while aiming at a gun
+// selects it, LMB while selected attempts to buy it by spending given-scrap totals. ----------
+const SHOP_ITEMS = [
+  { slot: 6, name: 'Panel Repair Tool', cost: { cable: 30, panel: 30, inverter: 5, rock: 10, timber: 10 } },
+  { slot: 7, name: 'Bulk Inverter Gun', cost: { cable: 50, panel: 20, inverter: 15, rock: 20, timber: 20 } },
+];
+let selectedShopItem = null;
+const shopItemMeshes = []; // { mesh, item }
+
+function costLine(cost) {
+  return `${cost.cable} cable / ${cost.panel} panel / ${cost.inverter} inv / ${cost.rock} rock / ${cost.timber} timber`;
+}
+
+function buildShopCounter() {
+  if (shopItemMeshes.length) return; // already built
+  const { deskX, deskZ, clericZ, standHalfW } = SALVAGE_YARD;
+  const shopDeskX = deskX + standHalfW * 0.55;
+
+  const deskMat = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.6, metalness: 0.3 });
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.0, 0.9), deskMat);
+  desk.position.set(shopDeskX, 0.5, deskZ);
+  desk.castShadow = true;
+  desk.receiveShadow = true;
+  scene.add(desk);
+  groundColliders.push(desk);
+  addWallBox(shopDeskX - 1.6, shopDeskX + 1.6, deskZ - 0.45, deskZ + 0.45, 0, 1.0);
+
+  buildPerson(shopDeskX - 0.7, clericZ, Math.PI, 'stand');
+  buildPerson(shopDeskX + 0.7, clericZ, Math.PI, 'talk');
+
+  SHOP_ITEMS.forEach((item, i) => {
+    const gx = shopDeskX - 0.8 + i * 1.6;
+    const propMat = new THREE.MeshStandardMaterial({ color: item.slot === 6 ? 0x8aff9e : 0x9fd4ff, roughness: 0.4, metalness: 0.5 });
+    const prop = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.7), propMat);
+    prop.position.set(gx, 1.08, deskZ);
+    prop.rotation.y = Math.PI / 2;
+    prop.castShadow = true;
+    scene.add(prop);
+    prop.userData.shopItem = item;
+    shopItemMeshes.push({ mesh: prop, item });
+
+    const nameTag = makeTextSprite(item.name, { fontSize: 34, color: '#ffd54a', border: '#ff9a4d', scale: 0.4 });
+    nameTag.position.set(gx, 1.85, deskZ);
+    scene.add(nameTag);
+    const costTag = makeTextSprite(costLine(item.cost), { fontSize: 24, color: '#e8e8e8', border: '#9a9a9a', scale: 0.4 });
+    costTag.position.set(gx, 1.55, deskZ);
+    scene.add(costTag);
+    item.tag = nameTag;
+  });
+}
+
+function findShopItemUnderCrosshair() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(shopItemMeshes.map((s) => s.mesh), false);
+  if (!hits.length || hits[0].distance > 5) return null;
+  const found = shopItemMeshes.find((s) => s.mesh === hits[0].object);
+  return found ? found.item : null;
+}
+
+function selectShopItem(item) {
+  selectedShopItem = item;
+  showToast(`SELECTED: ${item.name} — LMB TO BUY (${costLine(item.cost)})`);
+}
+
+function purchaseSelectedShopItem() {
+  const item = selectedShopItem;
+  if (!item) return;
+  const unlockedKey = `weapon${item.slot}Unlocked`;
+  if (upgrades[unlockedKey]) { showToast('ALREADY OWNED'); return; }
+  const c = item.cost;
+  if (givenCableScrap < c.cable || givenPanelScrap < c.panel || givenInverterScrap < c.inverter ||
+      givenRockScrap < c.rock || givenTimberScrap < c.timber) {
+    showToast(`NOT ENOUGH SALVAGE GIVEN — NEED ${costLine(c)}`);
+    return;
+  }
+  givenCableScrap -= c.cable;
+  givenPanelScrap -= c.panel;
+  givenInverterScrap -= c.inverter;
+  givenRockScrap -= c.rock;
+  givenTimberScrap -= c.timber;
+  upgrades[unlockedKey] = true;
+  updateCleriSigns();
+  selectedShopItem = null;
+  showMilestoneBanner('🔫', `${item.name.toUpperCase()} PURCHASED — PRESS ${item.slot}`);
+  setWeapon(item.slot);
 }
 
 // ---------- Cable-raycast target list — snapshot of every solid mesh built so far
@@ -847,6 +1054,50 @@ const waterStreamMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.05, 1,
 waterStreamMesh.visible = false;
 scene.add(waterStreamMesh);
 
+// ---------- Panel Repair Tool view model (gun 6, shop purchase) ----------
+const repairGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.28), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.16, 8), new THREE.MeshStandardMaterial({ color: 0x8aff9e, emissive: 0x2a7a3e, emissiveIntensity: 0.8 }));
+  tip.rotation.x = -Math.PI / 2;
+  tip.position.set(0, 0, -0.32);
+  repairGunGroup.add(body, tip);
+}
+repairGunGroup.position.set(0.22, -0.2, -0.4);
+repairGunGroup.visible = false;
+camera.add(repairGunGroup);
+
+// ---------- Bulk Inverter Gun view model (gun 7, shop purchase) ----------
+const bulkInverterGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.3), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.2, 0.13), matInverterBody);
+  box.position.set(0, 0.07, -0.05);
+  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.18, 8), matToolBody);
+  muzzle.rotation.x = Math.PI / 2;
+  muzzle.position.set(0, 0, -0.3);
+  bulkInverterGunGroup.add(body, box, muzzle);
+}
+bulkInverterGunGroup.position.set(0.22, -0.2, -0.4);
+bulkInverterGunGroup.visible = false;
+camera.add(bulkInverterGunGroup);
+
+// ---------- Demo Tool view model (gun 8, auto-unlocked on first building collapse) ----------
+const demoToolGroup = new THREE.Group();
+{
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.3, 8), matWood);
+  handle.rotation.x = Math.PI / 2;
+  handle.position.set(0, -0.02, -0.1);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.09), new THREE.MeshStandardMaterial({ color: 0x8a8a8a, roughness: 0.5, metalness: 0.6 }));
+  head.position.set(0, -0.02, -0.28);
+  demoToolGroup.add(handle, head);
+}
+demoToolGroup.position.set(0.22, -0.2, -0.4);
+demoToolGroup.visible = false;
+camera.add(demoToolGroup);
+
 // ---------- Placement ghost preview ----------
 const ghostGeo = new THREE.BoxGeometry(PANEL_SIZE, PANEL_THICK, PANEL_SIZE);
 const ghostGeoLarge = new THREE.BoxGeometry(PANEL_SIZE_LARGE, PANEL_THICK, PANEL_SIZE_LARGE);
@@ -889,6 +1140,9 @@ function setWeapon(w) {
   routerGunGroup.visible = w === 3;
   inverterGunGroup.visible = w === 4;
   waterGunGroup.visible = w === 5;
+  repairGunGroup.visible = w === 6;
+  bulkInverterGunGroup.visible = w === 7;
+  demoToolGroup.visible = w === 8;
   mouseDown = false;
   if (w === 2) cancelCable();
   if (routerGrab) { if (routerGrab.previewLine) scene.remove(routerGrab.previewLine); routerGrab = null; }
@@ -930,6 +1184,18 @@ document.addEventListener('keydown', (e) => {
     if (upgrades.waterGunUnlocked) setWeapon(5);
     else showToast(`WATER GUN LOCKED — GIVE ${SCRAP_UNLOCK_CABLE} CABLE + ${SCRAP_UNLOCK_PANEL} PANEL SCRAP TO THE SALVAGE CLERIC`);
   }
+  if (e.code === 'Digit6') {
+    if (upgrades.weapon6Unlocked) setWeapon(6);
+    else showToast('PANEL REPAIR TOOL LOCKED — BUY IT AT THE SALVAGE YARD WEAPON SHOP');
+  }
+  if (e.code === 'Digit7') {
+    if (upgrades.weapon7Unlocked) setWeapon(7);
+    else showToast('BULK INVERTER GUN LOCKED — BUY IT AT THE SALVAGE YARD WEAPON SHOP');
+  }
+  if (e.code === 'Digit8') {
+    if (upgrades.demoToolUnlocked) setWeapon(8);
+    else showToast('DEMO TOOL LOCKED — DEMOLISH A BUILDING WITH FIRE FIRST');
+  }
   if (e.code === 'KeyX' && upgrades.largePanelUnlocked && currentWeapon === 1) {
     selectedPanelSize = selectedPanelSize === 'small' ? 'large' : 'small';
     showToast(selectedPanelSize === 'large' ? 'LARGE PANEL SELECTED' : 'STANDARD PANEL SELECTED');
@@ -947,6 +1213,18 @@ let rmbDown = false; // tracked globally so the water gun can check "is RMB also
 document.addEventListener('mousedown', (e) => {
   if (!isLocked) return;
   if (e.button === 2) rmbDown = true;
+
+  // shop counter intercept — works regardless of currently-equipped weapon, but only
+  // when actually aiming at a shop item mesh, so it never steals a click meant for
+  // the current weapon's own RMB/LMB action
+  if (upgrades.shopUnlocked) {
+    const shopHit = findShopItemUnderCrosshair();
+    if (shopHit) {
+      if (e.button === 2) { selectShopItem(shopHit); return; }
+      if (e.button === 0 && selectedShopItem) { purchaseSelectedShopItem(); return; }
+    }
+  }
+
   if (currentWeapon === 1) {
     if (e.button === 0) mouseDown = true;
     if (e.button === 2) {
@@ -962,8 +1240,14 @@ document.addEventListener('mousedown', (e) => {
   } else if (currentWeapon === 4) {
     if (e.button === 0) fireInverter();
     if (e.button === 2) handleInverterRightClick();
-  } else {
-    if (e.button === 0) mouseDown = true; // weapon 5: hold to spray
+  } else if (currentWeapon === 5) {
+    if (e.button === 0) mouseDown = true; // hold to spray
+  } else if (currentWeapon === 6) {
+    if (e.button === 0) firePanelRepair();
+  } else if (currentWeapon === 7) {
+    if (e.button === 0) fireBulkInverter();
+  } else if (currentWeapon === 8) {
+    if (e.button === 0) fireDemoTool();
   }
 });
 document.addEventListener('mouseup', (e) => {
@@ -1409,6 +1693,64 @@ function fireInverter() {
   if (target && isInverterSpotFree(target.point)) {
     placeInverter(target.point, target.normal, 0);
   }
+}
+
+// ---------- Weapon 7: Bulk Inverter Gun (shop purchase) — places a Tier 1 (10kW) unit
+// directly, skipping the usual 3x tier-0-proximity-merge grind ----------
+let bulkInverterCooldown = 0;
+function fireBulkInverter() {
+  if (bulkInverterCooldown > 0) return;
+  bulkInverterCooldown = 0.35;
+  const target = getInverterPlacementTarget();
+  if (target && isInverterSpotFree(target.point)) {
+    placeInverter(target.point, target.normal, 1);
+    showToast('TIER 1 INVERTER PLACED');
+  }
+}
+
+// ---------- Weapon 6: Panel Repair Tool (shop purchase) — aim at a burnt panel and
+// fire to un-char it, restoring its wattage to the array ----------
+let repairCooldown = 0;
+function firePanelRepair() {
+  if (repairCooldown > 0) return;
+  repairCooldown = 0.3;
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(panels.map((p) => p.mesh), true);
+  if (!hits.length) return;
+  let obj = hits[0].object;
+  while (obj && !panels.some((p) => p.mesh === obj)) obj = obj.parent;
+  const p = panels.find((pp) => pp.mesh === obj);
+  if (!p) return;
+  if (!p.burnt) { showToast('THAT PANEL ISN\'T DAMAGED'); return; }
+  if (p.burning) { showToast('PUT THE FIRE OUT FIRST'); return; }
+  // burning never deducted the panel's wattage (a charred panel still counts
+  // electrically, see collectInverterNetwork) — repairing is purely cosmetic,
+  // restoring the clean panel material with no change to totalWattsInstalled
+  p.burnt = false;
+  const body = p.mesh.children.find((c) => c.material !== matPanelFrame);
+  if (body) body.material = p.size > PANEL_SIZE + 0.01 ? matPanelLarge : matPanel;
+  showToast('PANEL REPAIRED');
+}
+
+// ---------- Weapon 8: Demo Tool (auto-unlocked on a building's first full collapse) —
+// aim at a tagged rock/timber rubble chunk and fire to convert it into carryable scrap ----------
+let demoToolCooldown = 0;
+function fireDemoTool() {
+  if (demoToolCooldown > 0) return;
+  demoToolCooldown = 0.3;
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(salvageableRubble.map((r) => r.mesh), false);
+  if (!hits.length || hits[0].distance > 8) { showToast('AIM AT A ROCK/TIMBER CHUNK IN A RUBBLE PILE'); return; }
+  const idx = salvageableRubble.findIndex((r) => r.mesh === hits[0].object);
+  if (idx < 0) return;
+  const chunk = salvageableRubble[idx];
+  const pos = chunk.mesh.position.clone();
+  scene.remove(chunk.mesh);
+  const gi = groundColliders.indexOf(chunk.mesh);
+  if (gi >= 0) groundColliders.splice(gi, 1);
+  salvageableRubble.splice(idx, 1);
+  dropScrap(pos, chunk.type);
+  showToast(`SALVAGED ${chunk.type.toUpperCase()}`);
 }
 
 function findInverterUnderCrosshair() {
@@ -2035,18 +2377,40 @@ function cancelCable() {
   cableActive = null;
 }
 
+const matTimberScrap = new THREE.MeshStandardMaterial({ color: 0x7a5230, roughness: 0.85, metalness: 0.0 });
+const matInverterScrap = new THREE.MeshStandardMaterial({ color: 0x2a3a44, roughness: 0.4, metalness: 0.6 });
+
+// five scrap types, each visually distinct: cable = coiled wire (torus), panel = a
+// broken shard (flat box), inverter = a scorched electronics chunk (small dark box),
+// rock = a grey lump (small dodecahedron), timber = a splintered beam (thin brown box)
 function dropScrap(point, type = 'cable') {
   const ray = new THREE.Raycaster();
   ray.set(new THREE.Vector3(point.x, point.y + 40, point.z), DOWN);
   const hits = ray.intersectObjects(groundColliders, false);
   const groundY = hits.length ? hits[0].point.y : 0;
-  // cable scrap = coiled wire (torus); panel scrap = a broken shard (flat box) — visually distinct
-  const scrap = type === 'panel'
-    ? new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.16), matScrap)
-    : new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.045, 6, 10), matScrap);
-  if (type !== 'panel') scrap.rotation.x = Math.PI / 2;
-  else scrap.rotation.y = rand(0, Math.PI);
-  scrap.position.set(point.x, groundY + (type === 'panel' ? 0.03 : 0.05), point.z);
+  let scrap, restY;
+  if (type === 'panel') {
+    scrap = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.16), matScrap);
+    scrap.rotation.y = rand(0, Math.PI);
+    restY = 0.03;
+  } else if (type === 'inverter') {
+    scrap = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.1), matInverterScrap);
+    scrap.rotation.y = rand(0, Math.PI);
+    restY = 0.07;
+  } else if (type === 'rock') {
+    scrap = new THREE.Mesh(new THREE.DodecahedronGeometry(0.13), matScrap);
+    scrap.rotation.set(rand(0, Math.PI), rand(0, Math.PI), 0);
+    restY = 0.11;
+  } else if (type === 'timber') {
+    scrap = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.08), matTimberScrap);
+    scrap.rotation.y = rand(0, Math.PI);
+    restY = 0.05;
+  } else {
+    scrap = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.045, 6, 10), matScrap);
+    scrap.rotation.x = Math.PI / 2;
+    restY = 0.05;
+  }
+  scrap.position.set(point.x, groundY + restY, point.z);
   scrap.castShadow = true;
   scrap.receiveShadow = true;
   scrap.userData.scrapType = type;
@@ -2413,7 +2777,7 @@ function collapseInstalledEquipment(b) {
     removeInverterFromWorld(inv);
     if (inv.groupId && inverterGroups.has(inv.groupId)) inverterGroups.get(inv.groupId).delete(inv);
     selectedInverters.delete(inv);
-    dropScrap(inv.pos, 'panel');
+    dropScrap(inv.pos, 'inverter');
   });
 }
 
@@ -2479,6 +2843,11 @@ function beginBuildingCollapse(b, st) {
   if (!st.collapsing) finishDemolition(b, st);
 }
 
+// rubble chunks tagged as salvageable, sitting on top of a demolished building's pile —
+// the Demo Tool (weapon 8, unlocked the first time any building fully collapses) aims at
+// one and converts it into carryable rock/timber scrap; see fireDemoTool below
+const salvageableRubble = []; // { mesh, type: 'rock'|'timber' }
+
 function finishDemolition(b, st) {
   st.rubbleSpawned = true;
   st.collapsing = false;
@@ -2493,6 +2862,27 @@ function finishDemolition(b, st) {
     rubble.receiveShadow = true;
     scene.add(rubble);
     groundColliders.push(rubble); // rubble pile stays walkable
+  }
+  // a handful of salvageable chunks (rock = broken masonry, timber = a splintered
+  // roof/floor beam) — need the Demo Tool to convert them into carryable scrap
+  for (let i = 0; i < 6; i++) {
+    const type = i % 2 === 0 ? 'rock' : 'timber';
+    const a = Math.random() * Math.PI * 2, rr = Math.random() * pileRadius;
+    const pos = new THREE.Vector3(midX + Math.cos(a) * rr, st.pileTop + rand(0.4, 1.1), midZ + Math.sin(a) * rr);
+    const mesh = type === 'rock'
+      ? new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.35, 0.6)), matScrap)
+      : new THREE.Mesh(new THREE.BoxGeometry(rand(1.2, 2.0), 0.18, 0.18), matTimberScrap);
+    mesh.position.copy(pos);
+    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * 0.4);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    groundColliders.push(mesh);
+    salvageableRubble.push({ mesh, type });
+  }
+  if (!upgrades.demoToolUnlocked) {
+    upgrades.demoToolUnlocked = true;
+    showMilestoneBanner('🔨', 'DEMO TOOL UNLOCKED! PRESS 8 — SALVAGE ROCK/TIMBER FROM RUBBLE PILES');
   }
 }
 
@@ -2580,6 +2970,7 @@ function extinguishInverter(inv) {
   if (inv.fireRecord) { removeFireEffect(inv.fireRecord); inv.fireRecord = null; }
   showToast('FIRE OUT — INVERTER SAFED');
   Array.from(inv.wiredCables).forEach((c) => destroyCable(c, true)); // cable falls apart, drops scrap
+  dropScrap(inv.pos, 'inverter');
   destroyInverter(inv);
   registerExtinguish();
 }
@@ -2620,6 +3011,7 @@ function electrocutePlayer() {
 // electrocuting the player) — no soft burning state, it just fails catastrophically
 function destroyLiveInverterHit(inv) {
   Array.from(inv.wiredCables).forEach((c) => destroyCable(c, true));
+  dropScrap(inv.pos, 'inverter');
   destroyInverter(inv);
 }
 function destroyLivePanelHit(p) {
@@ -2917,11 +3309,21 @@ function nextMilestone() {
 // ---------- Salvage Yard (2000 milestone) ----------
 let carriedCableScrap = 0;
 let carriedPanelScrap = 0;
+let carriedInverterScrap = 0;
+let carriedRockScrap = 0;
+let carriedTimberScrap = 0;
 let credits = 0;
 const SCRAP_UNLOCK_CABLE = 1000;
 const SCRAP_UNLOCK_PANEL = 500;
 let givenCableScrap = 0; // lifetime totals given to the cleric — never decrease, gate the water gun
 let givenPanelScrap = 0;
+let givenInverterScrap = 0;
+let givenRockScrap = 0;
+let givenTimberScrap = 0;
+// once the shop counter is open, given totals double as a spendable pool for weapon
+// purchases (see SHOP_ITEMS/purchaseSelectedShopItem below) — they still only ever
+// grow from donations, but a purchase can draw them back down
+const SHOP_UNLOCK_TOTAL = 3000; // sum of all five given totals
 
 function salvagePanelUnderCrosshair() {
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
@@ -2948,33 +3350,54 @@ function salvagePanelUnderCrosshair() {
 
 function updateCleriSigns() {
   if (!salvageCleric.cableSign) return;
-  updateTextSprite(salvageCleric.cableSign, `${Math.min(givenCableScrap, SCRAP_UNLOCK_CABLE)}/${SCRAP_UNLOCK_CABLE} cable`, { color: '#ffcf8a', border: '#ff9a4d', fontSize: 40 });
-  updateTextSprite(salvageCleric.panelSign, `${Math.min(givenPanelScrap, SCRAP_UNLOCK_PANEL)}/${SCRAP_UNLOCK_PANEL} panel`, { color: '#8aff9e', border: '#4dff88', fontSize: 40 });
+  updateTextSprite(salvageCleric.cableSign, `${givenCableScrap} cable`, { color: '#ffcf8a', border: '#ff9a4d', fontSize: 36 });
+  updateTextSprite(salvageCleric.panelSign, `${givenPanelScrap} panel`, { color: '#8aff9e', border: '#4dff88', fontSize: 36 });
+  updateTextSprite(salvageCleric.inverterSign, `${givenInverterScrap} inverter`, { color: '#9fd4ff', border: '#4ab0ff', fontSize: 36 });
+  updateTextSprite(salvageCleric.rockSign, `${givenRockScrap} rock`, { color: '#d8d8d8', border: '#9a9a9a', fontSize: 36 });
+  updateTextSprite(salvageCleric.timberSign, `${givenTimberScrap} timber`, { color: '#e0b078', border: '#a86a3a', fontSize: 36 });
 }
 
 function updateSalvagePickups() {
   if (!upgrades.salvageUnlocked) return;
   for (let i = scraps.length - 1; i >= 0; i--) {
     if (scraps[i].position.distanceTo(camera.position) < 1.6) {
-      if (scraps[i].userData.scrapType === 'panel') carriedPanelScrap++; else carriedCableScrap++;
+      const t = scraps[i].userData.scrapType;
+      if (t === 'panel') carriedPanelScrap++;
+      else if (t === 'inverter') carriedInverterScrap++;
+      else if (t === 'rock') carriedRockScrap++;
+      else if (t === 'timber') carriedTimberScrap++;
+      else carriedCableScrap++;
       scene.remove(scraps[i]);
       scraps.splice(i, 1);
     }
   }
   if (!salvageCleric.pos) return;
   const distToCleric = Math.hypot(camera.position.x - salvageCleric.pos.x, camera.position.z - salvageCleric.pos.z);
-  if (distToCleric < 3 && (carriedCableScrap > 0 || carriedPanelScrap > 0)) {
-    const earned = (carriedCableScrap + carriedPanelScrap) * 10;
+  const totalCarried = carriedCableScrap + carriedPanelScrap + carriedInverterScrap + carriedRockScrap + carriedTimberScrap;
+  if (distToCleric < 3 && totalCarried > 0) {
+    const earned = totalCarried * 10;
     credits += earned;
     givenCableScrap += carriedCableScrap;
     givenPanelScrap += carriedPanelScrap;
-    showToast(`GAVE ${carriedCableScrap} CABLE + ${carriedPanelScrap} PANEL SCRAP → +${earned} CREDITS`);
+    givenInverterScrap += carriedInverterScrap;
+    givenRockScrap += carriedRockScrap;
+    givenTimberScrap += carriedTimberScrap;
+    showToast(`GAVE ${totalCarried} SCRAP → +${earned} CREDITS`);
     carriedCableScrap = 0;
     carriedPanelScrap = 0;
+    carriedInverterScrap = 0;
+    carriedRockScrap = 0;
+    carriedTimberScrap = 0;
     updateCleriSigns();
     if (!upgrades.waterGunUnlocked && givenCableScrap >= SCRAP_UNLOCK_CABLE && givenPanelScrap >= SCRAP_UNLOCK_PANEL) {
       upgrades.waterGunUnlocked = true;
       showMilestoneBanner('✦', 'WATER GUN UNLOCKED! PRESS 5');
+    }
+    const givenTotal = givenCableScrap + givenPanelScrap + givenInverterScrap + givenRockScrap + givenTimberScrap;
+    if (!upgrades.shopUnlocked && givenTotal >= SHOP_UNLOCK_TOTAL) {
+      upgrades.shopUnlocked = true;
+      buildShopCounter();
+      showMilestoneBanner('🛒', 'WEAPON SHOP OPEN — SECOND COUNTER AT THE SALVAGE YARD');
     }
   }
 }
@@ -3050,13 +3473,22 @@ function updateHud() {
     weaponLine = `<b>4: Inverter Gun</b>${selMsg}<br>` +
       `<span class="good">LMB</span> fire onto a wall (snaps to grid) &nbsp; <span class="good">RMB</span> tier-0: pick up · big units: select 3 same-tier to combine<br>` +
       `3 adjacent tier-0 units auto-combine &nbsp; <span class="key" style="font-size:11px;">E</span> switch a wired inverter — <span class="bad">exceed its kW rating and it catches fire</span>`;
-  } else {
+  } else if (currentWeapon === 5) {
     const powderMsg = upgrades.powderUnlocked
       ? `<br>&nbsp; <span class="key" style="font-size:11px;">RMB</span> hold while spraying: <b>powder</b> — safes live gear without electrocuting you`
       : `<br>&nbsp; powder upgrade: ${extinguishedFireCount}/${POWDER_UNLOCK_COUNT} fires put out`;
     weaponLine = `<b>5: Water Gun</b> — hold <span class="good">LMB</span> to spray<br>` +
       `switch a burning inverter <b>off</b> first, then spray it and its panels to put the fire out<br>` +
       `<span class="bad">spraying anything still live destroys it and electrocutes you</span> — operational cables are safe to hit${powderMsg}`;
+  } else if (currentWeapon === 6) {
+    weaponLine = `<b>6: Panel Repair Tool</b><br>` +
+      `<span class="good">LMB</span> aim at a charred panel to repair it and restore its wattage`;
+  } else if (currentWeapon === 7) {
+    weaponLine = `<b>7: Bulk Inverter Gun</b><br>` +
+      `<span class="good">LMB</span> fire onto a wall to place a Tier 1 (10kW) inverter directly (snaps to grid)`;
+  } else if (currentWeapon === 8) {
+    weaponLine = `<b>8: Demo Tool</b><br>` +
+      `<span class="good">LMB</span> aim at a rock/timber chunk in a building's rubble pile to salvage it`;
   }
 
   const stars = '★'.repeat(upgrades.goldStars);
@@ -3064,14 +3496,22 @@ function updateHud() {
   const progressMsg = nm ? `next: ${totalConnected}/${nm.count} connected` : 'all milestones reached';
   let salvageLine = '';
   if (upgrades.salvageUnlocked) {
-    salvageLine = `<br>Scrap carried: <b>${carriedCableScrap}</b> cable / <b>${carriedPanelScrap}</b> panel · Credits: <b>${credits}</b> — give it to the cleric at the Salvage Yard`;
+    salvageLine = `<br>Scrap carried: <b>${carriedCableScrap}</b> cable / <b>${carriedPanelScrap}</b> panel / <b>${carriedInverterScrap}</b> inverter / <b>${carriedRockScrap}</b> rock / <b>${carriedTimberScrap}</b> timber · Credits: <b>${credits}</b> — give it to the clerics at the Salvage Yard`;
     if (!upgrades.waterGunUnlocked) {
       salvageLine += `<br>Water Gun: <b>${Math.min(givenCableScrap, SCRAP_UNLOCK_CABLE)}/${SCRAP_UNLOCK_CABLE}</b> cable, <b>${Math.min(givenPanelScrap, SCRAP_UNLOCK_PANEL)}/${SCRAP_UNLOCK_PANEL}</b> panel given`;
     }
+    if (!upgrades.shopUnlocked) {
+      const givenTotal = givenCableScrap + givenPanelScrap + givenInverterScrap + givenRockScrap + givenTimberScrap;
+      salvageLine += `<br>Weapon shop: <b>${givenTotal}/${SHOP_UNLOCK_TOTAL}</b> total salvage given`;
+    }
   }
-  const weaponKeys = upgrades.waterGunUnlocked ? '1/2/3/4/5' : '1/2/3/4';
+  const weaponKeys = ['1', '2', '3', '4'];
+  if (upgrades.waterGunUnlocked) weaponKeys.push('5');
+  if (upgrades.weapon6Unlocked) weaponKeys.push('6');
+  if (upgrades.weapon7Unlocked) weaponKeys.push('7');
+  if (upgrades.demoToolUnlocked) weaponKeys.push('8');
   hud.innerHTML = `${weaponLine}<br>` +
-    `${crouching ? '<span class="bad">crouched</span>' : 'standing'} · ${grounded ? 'grounded' : 'airborne'} · <span class="key" style="font-size:11px;">${weaponKeys}</span> switch weapon<br>` +
+    `${crouching ? '<span class="bad">crouched</span>' : 'standing'} · ${grounded ? 'grounded' : 'airborne'} · <span class="key" style="font-size:11px;">${weaponKeys.join('/')}</span> switch weapon<br>` +
     `Connected: <b>${totalConnected}</b> ${stars} — ${progressMsg}${salvageLine}`;
   const kw = (totalWattsInstalled / 1000).toFixed(2);
   panelCountEl.innerHTML =
@@ -3090,6 +3530,9 @@ function animate() {
 
   if (fireCooldown > 0) fireCooldown -= dt;
   if (inverterFireCooldown > 0) inverterFireCooldown -= dt;
+  if (bulkInverterCooldown > 0) bulkInverterCooldown -= dt;
+  if (repairCooldown > 0) repairCooldown -= dt;
+  if (demoToolCooldown > 0) demoToolCooldown -= dt;
   updateElectricalSparks(dt);
   updateInverterProduction(dt);
   updateInverterSignFlash(dt);
@@ -3295,4 +3738,19 @@ window.__debug = {
   rmbDown: () => rmbDown, pointOnPlacementSurface,
   spawnDeliveryTruck, updateDeliveryTruck, deliveryTruck: () => deliveryTruck, DELIVERY_AMMO_CAP,
   getAmmo: () => ammo, setAmmo: (v) => { ammo = v; },
+  SHOP_ITEMS, SHOP_UNLOCK_TOTAL, buildShopCounter,
+  findShopItemUnderCrosshair, selectShopItem, purchaseSelectedShopItem,
+  selectedShopItem: () => selectedShopItem, shopItemMeshes,
+  firePanelRepair, fireBulkInverter, fireDemoTool, salvageableRubble,
+  getScrapTotals: () => ({
+    carried: { cable: carriedCableScrap, panel: carriedPanelScrap, inverter: carriedInverterScrap, rock: carriedRockScrap, timber: carriedTimberScrap },
+    given: { cable: givenCableScrap, panel: givenPanelScrap, inverter: givenInverterScrap, rock: givenRockScrap, timber: givenTimberScrap },
+  }),
+  setGiven: (type, v) => {
+    if (type === 'cable') givenCableScrap = v;
+    else if (type === 'panel') givenPanelScrap = v;
+    else if (type === 'inverter') givenInverterScrap = v;
+    else if (type === 'rock') givenRockScrap = v;
+    else if (type === 'timber') givenTimberScrap = v;
+  },
 };
