@@ -302,38 +302,119 @@ function buildBuilding(def) {
 
 const buildingBoxes = BUILDING_DEFS.map(buildBuilding);
 
-// ---------- Fire-escape style stairs so roofs are reachable on foot. Steps climb
-// TOWARD the building (lowest step furthest out, highest step right at the roof-
-// edge parapet gap) so the run actually connects to the roof surface. ----------
-function buildAccessRamp(box, side) {
+// ---------- Fire-escape style exterior circulation so every floor (not just the roof)
+// is reachable on foot: a balcony + door landing at each floor level (window-band
+// height), alternating between a wide open "fire escape" flight and a narrower
+// "internal stair" flight for visual variety (buildings are solid boxes with no
+// modeled interior, so both flights are exterior-attached — the narrow ones just read
+// as an enclosed stairwell rather than an open fire escape), and a vertical ladder
+// for the final run from the top floor up to the roof. ----------
+function buildFloorAccess(box, side) {
   const { minX, maxX, minZ, maxZ, topY } = box;
-  const steps = Math.max(6, Math.round(topY / 0.9));
-  const stepH = topY / steps;
-  const stepDepth = 0.85;
-  const stepWidth = 2.4;
-  const wallGap = 0.5; // horizontal gap between the topmost step and the wall/parapet gap
   const alongX = (side === 'minX' || side === 'maxX');
   const sign = (side === 'minX' || side === 'minZ') ? -1 : 1;
   const wallCoord = alongX ? (side === 'minX' ? minX : maxX) : (side === 'minZ' ? minZ : maxZ);
   const midOther = alongX ? (minZ + maxZ) / 2 : (minX + maxX) / 2;
+  const wallGap = 0.5;
+  const matDoor = new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.6, metalness: 0.3 });
 
-  for (let i = 0; i < steps; i++) {
-    const distFromWall = wallGap + (steps - 1 - i) * stepDepth + stepDepth / 2;
-    const y = stepH * (i + 0.5);
-    const coord = wallCoord + sign * distFromWall;
-    const geo = alongX
-      ? new THREE.BoxGeometry(stepDepth * 1.3, stepH, stepWidth)
-      : new THREE.BoxGeometry(stepWidth, stepH, stepDepth * 1.3);
-    const stepMesh = new THREE.Mesh(geo, matCrate);
-    if (alongX) stepMesh.position.set(coord, y, midOther); else stepMesh.position.set(midOther, y, coord);
-    stepMesh.castShadow = true;
-    stepMesh.receiveShadow = true;
-    stepMesh.userData.isSurface = true;
-    scene.add(stepMesh);
-    groundColliders.push(stepMesh);
+  // one flight of stepped boxes climbing from yFrom to yTo, offset out from the wall
+  function buildFlight(yFrom, yTo, flightWidth, mat) {
+    const rise = yTo - yFrom;
+    const steps = Math.max(3, Math.round(rise / 0.9));
+    const stepH = rise / steps;
+    const stepDepth = 0.85;
+    for (let i = 0; i < steps; i++) {
+      const distFromWall = wallGap + (steps - 1 - i) * stepDepth + stepDepth / 2;
+      const y = yFrom + stepH * (i + 0.5);
+      const coord = wallCoord + sign * distFromWall;
+      const geo = alongX
+        ? new THREE.BoxGeometry(stepDepth * 1.2, stepH, flightWidth)
+        : new THREE.BoxGeometry(flightWidth, stepH, stepDepth * 1.2);
+      const stepMesh = new THREE.Mesh(geo, mat);
+      if (alongX) stepMesh.position.set(coord, y, midOther); else stepMesh.position.set(midOther, y, coord);
+      stepMesh.castShadow = true;
+      stepMesh.receiveShadow = true;
+      stepMesh.userData.isSurface = true;
+      scene.add(stepMesh);
+      groundColliders.push(stepMesh);
+    }
+  }
+
+  // a balcony landing (walkable deck + rail posts) plus a door prop on the wall behind it
+  function buildLanding(y) {
+    const deckW = 2.6, deckD = 1.3;
+    const coord = wallCoord + sign * (wallGap + deckD / 2);
+    const deck = new THREE.Mesh(
+      alongX ? new THREE.BoxGeometry(deckD, 0.15, deckW) : new THREE.BoxGeometry(deckW, 0.15, deckD),
+      matRail
+    );
+    if (alongX) deck.position.set(coord, y, midOther); else deck.position.set(midOther, y, coord);
+    deck.castShadow = true;
+    deck.receiveShadow = true;
+    deck.userData.isSurface = true;
+    scene.add(deck);
+    groundColliders.push(deck);
+
+    const postGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6);
+    const outerCoord = wallCoord + sign * (wallGap + deckD);
+    [-deckW / 2 + 0.2, 0, deckW / 2 - 0.2].forEach((o) => {
+      const post = new THREE.Mesh(postGeo, matRail);
+      if (alongX) post.position.set(outerCoord, y + 0.45, midOther + o); else post.position.set(midOther + o, y + 0.45, outerCoord);
+      post.castShadow = true;
+      scene.add(post);
+    });
+
+    const door = new THREE.Mesh(
+      alongX ? new THREE.BoxGeometry(0.08, 1.9, 0.9) : new THREE.BoxGeometry(0.9, 1.9, 0.08),
+      matDoor
+    );
+    const doorCoord = wallCoord + sign * 0.04;
+    if (alongX) door.position.set(doorCoord, y + 0.95, midOther); else door.position.set(midOther, y + 0.95, doorCoord);
+    scene.add(door);
+  }
+
+  const floorYs = [];
+  const rows = Math.max(1, Math.floor(topY / 3.2));
+  for (let r = 0; r < rows; r++) {
+    const wy = 1.8 + r * 3.2;
+    if (wy > topY - 1.2) break;
+    floorYs.push(wy);
+  }
+
+  let y = 0;
+  floorYs.forEach((nextY, i) => {
+    const exterior = i % 2 === 0;
+    buildFlight(y, nextY, exterior ? 2.4 : 1.6, exterior ? matRail : matCrate);
+    buildLanding(nextY);
+    y = nextY;
+  });
+
+  // final run: an external ladder from the top floor landing up to the roof — visually
+  // rails + rungs, with small climbable step platforms behind them since the simple
+  // box-collider ground-snap system has no dedicated ladder-climb mechanic
+  const railGeo = new THREE.CylinderGeometry(0.035, 0.035, topY - y, 6);
+  const railCoord = wallCoord + sign * (wallGap + 0.3);
+  [-0.3, 0.3].forEach((o) => {
+    const rail = new THREE.Mesh(railGeo, matRail);
+    if (alongX) rail.position.set(railCoord, y + (topY - y) / 2, midOther + o); else rail.position.set(midOther + o, y + (topY - y) / 2, railCoord);
+    scene.add(rail);
+  });
+  const rungCount = Math.max(4, Math.round((topY - y) / 0.35));
+  for (let i = 0; i <= rungCount; i++) {
+    const ry = y + (topY - y) * (i / rungCount);
+    const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.66, 6), matRail);
+    if (alongX) { rung.rotation.z = Math.PI / 2; rung.position.set(railCoord, ry, midOther); }
+    else { rung.rotation.x = Math.PI / 2; rung.position.set(midOther, ry, railCoord); }
+    scene.add(rung);
+    const step = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.5), matCrate);
+    if (alongX) step.position.set(railCoord, ry, midOther); else step.position.set(midOther, ry, railCoord);
+    step.userData.isSurface = true;
+    scene.add(step);
+    groundColliders.push(step);
   }
 }
-BUILDING_DEFS.forEach((def, i) => { if (def.stairSide) buildAccessRamp(buildingBoxes[i], def.stairSide); });
+BUILDING_DEFS.forEach((def, i) => { if (def.stairSide) buildFloorAccess(buildingBoxes[i], def.stairSide); });
 
 // ---------- Scattered crates (cover + climbable + valid panel targets) ----------
 const crateBoxes = [];
@@ -387,6 +468,11 @@ function buildPerson(x, z, rotY = 0, pose = 'stand') {
   } else if (pose === 'kite') {
     const a1 = new THREE.Mesh(armGeo, matSilhouette); a1.position.set(0.2, armY + 0.25, 0); a1.rotation.z = -1.6; g.add(a1);
     const a2 = new THREE.Mesh(armGeo, matSilhouette); a2.position.set(-0.2, armY + 0.25, 0); a2.rotation.z = 1.6; g.add(a2);
+  } else if (pose === 'install') {
+    // bent-forward stance, both arms reaching out toward whatever's being worked on
+    g.rotation.x = 0.25;
+    const a1 = new THREE.Mesh(armGeo, matSilhouette); a1.position.set(0.16, armY + 0.1, 0.22); a1.rotation.x = -1.1; g.add(a1);
+    const a2 = new THREE.Mesh(armGeo, matSilhouette); a2.position.set(-0.16, armY + 0.1, 0.22); a2.rotation.x = -1.1; g.add(a2);
   } else {
     const a1 = new THREE.Mesh(armGeo, matSilhouette); a1.position.set(0.22, armY, 0); g.add(a1);
     const a2 = new THREE.Mesh(armGeo, matSilhouette); a2.position.set(-0.22, armY, 0); g.add(a2);
@@ -694,9 +780,64 @@ const MEGA_BUILDING_DEFS = [
 MEGA_BUILDING_DEFS.forEach((def, i) => { def.mat = matBuilding[i % matBuilding.length]; });
 const megaBuildingBoxes = MEGA_BUILDING_DEFS.map((def) => {
   const box = buildBuilding(def);
-  buildAccessRamp(box, def.stairSide);
+  buildFloorAccess(box, def.stairSide);
   return box;
 });
+
+// ---------- Heat pump / aircon condenser units + static installer NPCs, scattered on
+// building walls (ground level) and rooftops, purely decorative/frozen in pose ----------
+const matHvac = new THREE.MeshStandardMaterial({ color: 0xdcdcdc, roughness: 0.5, metalness: 0.4 });
+const matHvacGrille = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.6, metalness: 0.3 });
+function buildHvacUnit(x, y, z, facing) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.55, 0.32), matHvac);
+  body.position.y = 0.28;
+  const grille = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 12), matHvacGrille);
+  grille.rotation.x = Math.PI / 2;
+  grille.position.set(0, 0.3, 0.17);
+  group.add(body, grille);
+  group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  group.position.set(x, y, z);
+  group.rotation.y = facing;
+  scene.add(group);
+  return group;
+}
+
+function scatterWallHvac(count, boxes) {
+  const sides = ['minX', 'maxX', 'minZ', 'maxZ'];
+  for (let i = 0; i < count; i++) {
+    const b = boxes[Math.floor(Math.random() * boxes.length)];
+    const side = sides[Math.floor(Math.random() * 4)];
+    const alongX = side === 'minX' || side === 'maxX';
+    const sign = (side === 'minX' || side === 'minZ') ? -1 : 1;
+    const wallCoord = alongX ? (side === 'minX' ? b.minX : b.maxX) : (side === 'minZ' ? b.minZ : b.maxZ);
+    const t = rand(0.2, 0.8);
+    const otherCoord = alongX ? b.minZ + (b.maxZ - b.minZ) * t : b.minX + (b.maxX - b.minX) * t;
+    const unitCoord = wallCoord + sign * 0.5;
+    const npcCoord = wallCoord + sign * 1.3;
+    const facing = alongX ? (sign > 0 ? Math.PI / 2 : -Math.PI / 2) : (sign > 0 ? 0 : Math.PI);
+    const jitter = rand(-0.3, 0.3);
+    if (alongX) {
+      buildHvacUnit(unitCoord, 0.3, otherCoord, facing);
+      buildPerson(npcCoord, otherCoord + jitter, facing + Math.PI, 'install');
+    } else {
+      buildHvacUnit(otherCoord, 0.3, unitCoord, facing);
+      buildPerson(otherCoord + jitter, npcCoord, facing + Math.PI, 'install');
+    }
+  }
+}
+function scatterRoofHvac(count, boxes) {
+  for (let i = 0; i < count; i++) {
+    const b = boxes[Math.floor(Math.random() * boxes.length)];
+    const x = b.minX + rand(0.2, 0.8) * (b.maxX - b.minX);
+    const z = b.minZ + rand(0.2, 0.8) * (b.maxZ - b.minZ);
+    const facing = rand(0, Math.PI * 2);
+    buildHvacUnit(x, b.topY + 0.2, z, facing);
+    buildPerson(x + rand(-1.1, 1.1), z + rand(-1.1, 1.1), rand(0, Math.PI * 2), 'install');
+  }
+}
+scatterWallHvac(12, buildingBoxes);
+scatterRoofHvac(8, buildingBoxes.concat(megaBuildingBoxes));
 
 // ---------- Salvage Yard (unlocked at the 2000-connected milestone) ----------
 // A warehouse with pallet racking behind a fenced, paved hard stand, entered through

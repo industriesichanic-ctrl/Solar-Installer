@@ -46,8 +46,20 @@ milestone system below.
 Open-world Three.js FPS map, built once at load:
 
 - **Building grid**: procedurally placed buildings (some skyscraper-height),
-  each with a flat roof, a parapet, and (most of them) an exterior staircase
-  up one side so roofs are reachable on foot.
+  each with a flat roof, a parapet, and (most of them) exterior floor access
+  up one side (`buildFloorAccess`, replaced the old single-flight
+  `buildAccessRamp`) — a balcony landing + door prop at every floor level
+  (window-band height), alternating between a wider "fire escape" flight and
+  a narrower flight (buildings are solid boxes with no modeled interior, so
+  this narrower flight just *reads* as an enclosed stairwell rather than
+  being a literal separate interior — see the Floor access section below),
+  then a vertical ladder (rails + rungs + small climbable step platforms) for
+  the final run from the top floor to the roof.
+- **HVAC installs**: heat pump / aircon condenser units (`buildHvacUnit`)
+  scattered on building walls at ground level and on rooftops, each paired
+  with a static installer NPC in a new bent-forward `'install'` pose
+  (`scatterWallHvac`/`scatterRoofHvac`) — purely decorative, frozen in place
+  like the rest of the population.
 - **Solar Farm District**: a cluster of large mega-roof buildings at varying
   heights, purpose-built for big panel arrays (up to ~1000 panels combined).
 - **Market square**: paved plaza with static silhouette NPCs in a few poses,
@@ -58,6 +70,34 @@ Open-world Three.js FPS map, built once at load:
 - **Parked cars**: static vehicles scattered along the roads.
 - **Salvage Yard**: a fenced yard with the salvage cleric NPC (see
   Progression/Salvage below).
+
+### Floor access (fire escapes, balconies, roof ladder)
+
+`buildFloorAccess(box, side)` (called once per building that has a
+`stairSide`, both regular and mega buildings) replaces what used to be one
+continuous flight straight to the roof. Floor levels are computed the same
+way `windowMeshes` rows are (`1.8 + r * 3.2`, stopping once within 1.2 of
+`topY`), so doors line up with the window bands. For each floor: a
+`buildFlight` climbs from the previous level to this one (alternating
+`matRail`-colored 2.4-wide "fire escape" flights on even floors and
+`matCrate`-colored 1.6-wide narrower flights on odd floors — purely a visual
+alternation, both are still exterior-attached box steps pushed into
+`groundColliders`), then `buildLanding` adds a walkable deck with 3 rail
+posts and a door prop (`matDoor`, flat box on the wall) at that height. Once
+every floor level is climbed, the final segment from the top floor to the
+roof is a vertical ladder — two rail cylinders + rungs for looks, plus a
+stack of small `matCrate` step platforms at the same heights so it's
+actually climbable (this simple box-collider ground-snap system has no
+dedicated ladder-climb mechanic, so a literal thin ladder mesh wouldn't be
+walkable on its own).
+
+Known limitation, called out up front rather than hidden: because buildings
+are solid single-box meshes with no hollow interior, the "narrower flight"
+segments are still exterior-attached, just styled to read as an enclosed
+stairwell — there's no way to actually walk *through* a door into a real
+room without redesigning how buildings are constructed (floor slabs +
+interior walls per building), which wasn't done here. Doors are entry-point
+props, not real openings.
 
 Everything living (people, cars, the train) is currently **static/frozen** —
 no movement or animation yet; that was an explicit "later" from the original
