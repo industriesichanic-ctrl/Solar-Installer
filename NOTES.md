@@ -189,6 +189,17 @@ confirmed `spawnWaterBurst` runs with no console errors. Not yet
 live-tested with actual mouse/pointer-lock input in a real play session —
 that's the next thing to do before calling this fully done.
 
+### Locked-job planned loadouts (v17, display-only)
+
+Each of the 23 locked `JOBS` entries now carries a `tools` array — the
+6-tool loadout the user itemized for every remaining trade, following the
+shared `Place → Connect → Configure → Test → Repair/Clean` workflow shape.
+Purely cosmetic: `selectJobTile` shows it in the toast (`job.tools.join('
+· ')`, 5s duration since it's a long line) when RMB-selecting a locked
+desk at the Job Hut, nothing else reads `tools` anywhere. No new tools,
+meshes, or mechanics — matches "no need to code the other jobs now,"
+just makes the plan visible before it's built.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic

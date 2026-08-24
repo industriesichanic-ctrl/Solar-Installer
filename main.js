@@ -5122,32 +5122,59 @@ function animate() {
 // locked — "no need to code the other jobs now" was explicit, so there's no
 // invented unlock criteria for them yet, just `unlocked: false`.
 // ============================================================================
+// `tools` is display-only for every locked job — the Job Hut desk shows the planned
+// 1-6 loadout (per the "Place → Connect → Configure → Test → Repair/Clean" workflow
+// rule) so players can see what's coming, but none of it is wired up yet, per explicit
+// "no need to code the other jobs now" instruction.
 const JOBS = [
   { id: 'solar', name: 'Solar Installer', icon: '☀️', unlocked: true },
   { id: 'plumber', name: 'Plumber', icon: '🔧', unlocked: true },
-  { id: 'aircon', name: 'Aircon Installer', icon: '❄️', unlocked: false },
-  { id: 'heatpump', name: 'Heat Pump Installer', icon: '🌡️', unlocked: false },
-  { id: 'carpenter', name: 'Carpenter', icon: '🔨', unlocked: false },
-  { id: 'playground', name: 'Playground Builder', icon: '🎠', unlocked: false },
-  { id: 'roadbuilder', name: 'Road Builder', icon: '🛣️', unlocked: false },
-  { id: 'electrician', name: 'Electrician', icon: '⚡', unlocked: false },
-  { id: 'landscaper', name: 'Landscaper', icon: '🌳', unlocked: false },
-  { id: 'painter', name: 'Painter', icon: '🎨', unlocked: false },
-  { id: 'roofer', name: 'Roofer', icon: '🏠', unlocked: false },
-  { id: 'glazier', name: 'Glazier', icon: '🪟', unlocked: false },
-  { id: 'fencer', name: 'Fence Builder', icon: '🚧', unlocked: false },
-  { id: 'bricklayer', name: 'Bricklayer', icon: '🧱', unlocked: false },
-  { id: 'concreter', name: 'Concreter', icon: '🏗️', unlocked: false },
-  { id: 'telecom', name: 'Telecom Installer', icon: '📡', unlocked: false },
-  { id: 'lampfixer', name: 'Streetlight Technician', icon: '💡', unlocked: false },
-  { id: 'signage', name: 'Sign Installer', icon: '🪧', unlocked: false },
-  { id: 'irrigation', name: 'Irrigation Installer', icon: '💧', unlocked: false },
-  { id: 'waste', name: 'Waste Collector', icon: '🗑️', unlocked: false },
-  { id: 'poolbuilder', name: 'Pool Builder', icon: '🏊', unlocked: false },
-  { id: 'fountain', name: 'Fountain Builder', icon: '⛲', unlocked: false },
-  { id: 'muralist', name: 'Mural Artist', icon: '🖌️', unlocked: false },
-  { id: 'demolition', name: 'Demolition Contractor', icon: '🧨', unlocked: false },
-  { id: 'security', name: 'Security/CCTV Installer', icon: '📷', unlocked: false },
+  { id: 'aircon', name: 'Aircon Installer', icon: '❄️', unlocked: false,
+    tools: ['Indoor Unit Gun', 'Outdoor Unit Gun', 'Refrigerant Pipe Gun (LMB supply/RMB return)', 'Duct Gun', 'Vent Gun', 'Vacuum/Test Gun'] },
+  { id: 'heatpump', name: 'Heat Pump Installer', icon: '🌡️', unlocked: false,
+    tools: ['Heat Pump Gun', 'Flow Pipe Gun (LMB flow/RMB return)', 'Buffer Tank Gun', 'Circulation Pump Gun', 'Thermostat Gun', 'Commissioning Gun'] },
+  { id: 'carpenter', name: 'Carpenter', icon: '🔨', unlocked: false,
+    tools: ['Timber Frame Gun', 'Wall Panel Gun', 'Floorboard Gun', 'Door and Window Gun (LMB door/RMB window)', 'Nail Gun', 'Saw Gun'] },
+  { id: 'playground', name: 'Playground Builder', icon: '🎠', unlocked: false,
+    tools: ['Play Equipment Gun', 'Safety Surface Gun', 'Support Post Gun', 'Connector Gun', 'Fence and Gate Gun (LMB fence/RMB gate)', 'Safety Inspector Gun'] },
+  { id: 'roadbuilder', name: 'Road Builder', icon: '🛣️', unlocked: false,
+    tools: ['Road Surface Gun', 'Kerb Gun (LMB left/RMB right)', 'Lane Marking Gun', 'Drain Gun', 'Road Sign Gun', 'Compactor Gun'] },
+  { id: 'electrician', name: 'Electrician', icon: '⚡', unlocked: false,
+    tools: ['Cable Gun (LMB active/RMB neutral)', 'Switch Gun', 'Outlet Gun', 'Light Fitting Gun', 'Distribution Board Gun', 'Multimeter Gun'] },
+  { id: 'landscaper', name: 'Landscaper', icon: '🌳', unlocked: false,
+    tools: ['Terrain Gun (LMB raise/RMB lower)', 'Grass Gun', 'Tree Gun', 'Shrub and Flower Gun', 'Path Gun', 'Irrigation Connector Gun'] },
+  { id: 'painter', name: 'Painter', icon: '🎨', unlocked: false,
+    tools: ['Paint Spray Gun', 'Roller Gun', 'Detail Brush Gun', 'Masking Gun', 'Scraper Gun', 'Colour Scanner Gun'] },
+  { id: 'roofer', name: 'Roofer', icon: '🏠', unlocked: false,
+    tools: ['Roof Frame Gun', 'Roof Tile Gun', 'Ridge Cap Gun', 'Gutter Gun (LMB gutter/RMB downpipe)', 'Flashing Gun', 'Leak Detector Gun'] },
+  { id: 'glazier', name: 'Glazier', icon: '🪟', unlocked: false,
+    tools: ['Glass Panel Gun', 'Window Frame Gun', 'Sealant Gun', 'Glass Cutter Gun', 'Tint Gun', 'Suction Lifter Gun'] },
+  { id: 'fencer', name: 'Fence Builder', icon: '🚧', unlocked: false,
+    tools: ['Fence Gun', 'Post Gun', 'Gate Gun (LMB pedestrian/RMB vehicle)', 'Hinge and Latch Gun', 'Terrain Anchor Gun', 'Alignment Gun'] },
+  { id: 'bricklayer', name: 'Bricklayer', icon: '🧱', unlocked: false,
+    tools: ['Brick Wall Gun', 'Mortar Gun', 'Corner Gun', 'Arch and Lintel Gun', 'Brick Cutter Gun', 'Spirit Level Gun'] },
+  { id: 'concreter', name: 'Concreter', icon: '🏗️', unlocked: false,
+    tools: ['Formwork Gun', 'Rebar Gun', 'Concrete Pour Gun', 'Screed Gun', 'Joint Cutter Gun', 'Concrete Pump Gun'] },
+  { id: 'telecom', name: 'Telecom Installer', icon: '📡', unlocked: false,
+    tools: ['Fibre Cable Gun', 'Copper Cable Gun', 'Data Outlet Gun', 'Network Cabinet Gun', 'Splice Gun', 'Signal Tester Gun'] },
+  { id: 'lampfixer', name: 'Streetlight Technician', icon: '💡', unlocked: false,
+    tools: ['Streetlight Pole Gun', 'Light Head Gun', 'Underground Cable Gun', 'Control Cabinet Gun', 'Sensor Gun', 'Maintenance Lift Gun'] },
+  { id: 'signage', name: 'Sign Installer', icon: '🪧', unlocked: false,
+    tools: ['Sign Post Gun', 'Sign Face Gun', 'Wall Sign Gun', 'Bolt Gun', 'Reflective Coating Gun', 'Alignment Gun'] },
+  { id: 'irrigation', name: 'Irrigation Installer', icon: '💧', unlocked: false,
+    tools: ['Water Pipe Gun (LMB supply/RMB drainage)', 'Sprinkler Gun', 'Dripline Gun', 'Valve Gun', 'Irrigation Controller Gun', 'Pressure Tester Gun'] },
+  { id: 'waste', name: 'Waste Collector', icon: '🗑️', unlocked: false,
+    tools: ['Grabber Gun', 'Bin Gun', 'Bin Lifter Gun', 'Compactor Gun', 'Sorting Gun', 'Pressure Washer Gun'] },
+  { id: 'poolbuilder', name: 'Pool Builder', icon: '🏊', unlocked: false,
+    tools: ['Excavation Gun', 'Pool Shell Gun', 'Tile Gun', 'Water Pipe Gun (LMB inlet/RMB outlet)', 'Pump and Filter Gun', 'Fill and Drain Gun (LMB fill/RMB drain)'] },
+  { id: 'fountain', name: 'Fountain Builder', icon: '⛲', unlocked: false,
+    tools: ['Fountain Basin Gun', 'Water Jet Gun', 'Fountain Pipe Gun', 'Pump Gun', 'Fountain Light Gun', 'Pattern Controller Gun'] },
+  { id: 'muralist', name: 'Mural Artist', icon: '🖌️', unlocked: false,
+    tools: ['Sketch Projector Gun', 'Spray Paint Gun', 'Detail Paint Gun', 'Stencil Gun', 'Colour Blend Gun', 'Sealant Gun'] },
+  { id: 'demolition', name: 'Demolition Contractor', icon: '🧨', unlocked: false,
+    tools: ['Safety Barrier Gun', 'Structural Scanner Gun', 'Breaker Gun', 'Cutting Gun', 'Controlled Charge Gun', 'Debris Vacuum Gun'] },
+  { id: 'security', name: 'Security/CCTV Installer', icon: '📷', unlocked: false,
+    tools: ['Camera Gun', 'PTZ Camera Gun', 'Security Cable Gun', 'Alarm Sensor Gun', 'Control Panel Gun', 'Monitor Gun'] },
 ];
 let currentJob = null; // no job, no tools, until the player picks one at the Job Hut
 const jobTileMeshes = []; // { mesh, job }
@@ -5244,7 +5271,14 @@ function findJobTileUnderCrosshair() {
 }
 function selectJobTile(job) {
   selectedJobTile = job;
-  if (!job.unlocked) { showToast(`${job.name.toUpperCase()} IS LOCKED`); return; }
+  if (!job.unlocked) {
+    // locked jobs show their planned loadout (display-only, per the shared workflow
+    // rule Place -> Connect -> Configure -> Test -> Repair/Clean) so players can see
+    // what's coming without any of it actually being playable yet
+    const toolMsg = job.tools ? job.tools.join(' · ') : '';
+    showToast(`${job.name.toUpperCase()} IS LOCKED — PLANNED LOADOUT: ${toolMsg}`, 5);
+    return;
+  }
   showToast(`SELECTED: ${job.name} — LMB TO CONFIRM`);
 }
 function confirmJobSelection() {
