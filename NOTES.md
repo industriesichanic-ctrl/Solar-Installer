@@ -84,18 +84,23 @@ manually turn each inverter off (`E`) before it's safe to approach.
 - **Spread**: every burning inverter/panel has a 15s repeating timer
   (`updateFireSpread`/`spreadTick`). Each tick: (a) instantly ignites anything
   directly cable-linked to it (regardless of power state — fire doesn't care
-  if the circuit's on), and (b) advances the building it's mounted on by 2 of
-  an abstracted 10 "fire blocks" (`advanceBuildingFire`). `findBuildingContaining`
-  maps a world (x,z) to whichever `buildingBoxes`/`megaBuildingBoxes` entry
-  contains it — **this is a footprint/AABB check, not real per-chunk
-  geometry**; "blocks" are just a progress counter, not literal building
-  pieces.
-- **Collapse**: once a building hits 10/10 blocks, it shrinks in place
-  (`bodyMesh.scale.y`) over `DEMOLISH_DURATION` (14s), then
-  `finishDemolition` removes the body mesh + its wall collider and spawns a
-  walkable rubble pile (10 `DodecahedronGeometry` chunks pushed into
-  `groundColliders`). This means a fully cabled district really can burn
-  building-to-building and end up as rubble.
+  if the circuit's on), and (b) lights 2 more of the building's pre-mapped
+  fire blocks (`advanceBuildingFire`). `computeBuildingBlocks` lays out ~37
+  real points (panel-sized spacing, shuffled order) across all 4 walls and
+  the roof the first time a building starts burning — these are actual
+  positions a fire effect spawns at, not decorative random spots, so the
+  building visibly catches fire in a spreading pattern rather than one stray
+  flame. `findBuildingContaining` maps a world (x,z) to whichever
+  `buildingBoxes`/`megaBuildingBoxes` entry contains it (footprint/AABB
+  check — buildings still aren't real destructible sub-meshes, "blocks" are
+  just pre-computed points + a progress counter).
+- **Collapse**: once every block is lit, the building disappears in
+  `DEMOLISH_STEPS` (6) discrete steps, one every `SPREAD_INTERVAL` (15s) —
+  not a continuous tween, so it visibly chunks down in sync with the same
+  cadence fire spreads on. `finishDemolition` then removes the body mesh +
+  wall collider and spawns a walkable rubble pile (10 `DodecahedronGeometry`
+  chunks pushed into `groundColliders`). A fully cabled district really can
+  burn building-to-building and end up as rubble.
 
 ### Performance (fire LOD)
 
