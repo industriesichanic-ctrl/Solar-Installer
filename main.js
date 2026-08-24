@@ -592,6 +592,32 @@ function buildMarketSquare(cx, cz, r) {
 }
 buildMarketSquare(SPECIAL_ZONES[0].cx, SPECIAL_ZONES[0].cz, SPECIAL_ZONES[0].r);
 
+// ---------- Wanderers — a handful of the static crowd upgraded to slowly circle a
+// center point (fountain / lake shore) forever, so the market and park don't read as
+// completely frozen. Everyone else stays static as before. ----------
+const wanderers = [];
+function buildWanderer(cx, cz, radius, speed, phase, pose) {
+  const group = buildPerson(cx + Math.cos(phase) * radius, cz + Math.sin(phase) * radius, 0, pose);
+  wanderers.push({ group, cx, cz, radius, speed, angle: phase });
+}
+function updateWanderers(dt) {
+  wanderers.forEach((w) => {
+    w.angle += w.speed * dt;
+    const x = w.cx + Math.cos(w.angle) * w.radius;
+    const z = w.cz + Math.sin(w.angle) * w.radius;
+    w.group.position.set(x, 0, z);
+    w.group.rotation.y = Math.atan2(-Math.cos(w.angle), -Math.sin(w.angle));
+  });
+}
+{
+  const { cx, cz, r } = SPECIAL_ZONES[0];
+  for (let i = 0; i < 4; i++) {
+    const radius = rand(6, r - 4);
+    const speed = (rand(0.6, 1.1) / radius) * (i % 2 === 0 ? 1 : -1); // ~walking pace, alternating direction
+    buildWanderer(cx, cz, radius, speed, rand(0, Math.PI * 2), 'stand');
+  }
+}
+
 // ---------- Park + lake ----------
 function buildParkLake(cx, cz, r) {
   const lakeR = r * 0.42;
@@ -623,6 +649,15 @@ function buildParkLake(cx, cz, r) {
   }
 }
 buildParkLake(SPECIAL_ZONES[1].cx, SPECIAL_ZONES[1].cz, SPECIAL_ZONES[1].r);
+{
+  const { cx, cz, r } = SPECIAL_ZONES[1];
+  const lakeR = r * 0.42;
+  for (let i = 0; i < 3; i++) {
+    const radius = rand(lakeR + 4, r * 0.8);
+    const speed = (rand(0.5, 0.9) / radius) * (i % 2 === 0 ? 1 : -1);
+    buildWanderer(cx, cz, radius, speed, rand(0, Math.PI * 2), 'stand');
+  }
+}
 
 // ---------- Train + station (static — no movement yet) ----------
 function buildTrain(startX, endX, z) {
@@ -720,6 +755,77 @@ for (let i = 0; i < 6; i++) {
 for (let i = 0; i < 6; i++) {
   const x = i % 2 === 0 ? rand(20, 95) : -rand(20, 95);
   buildCar(x, rand(-2.4, 2.4), 0, CAR_COLORS[(i + 3) % CAR_COLORS.length]);
+}
+
+// ---------- Perimeter loop road + slowly circling traffic. The building grid only
+// ever occupies roughly -90..90, so a loop out at LOOP_R=115 clears every building
+// with room to spare (ground extends to ±140) — cars on it never have to navigate
+// around anything or hit a dead end, they just go around forever. ----------
+const LOOP_R = 115;
+const LOOP_CORNERS = [[LOOP_R, LOOP_R], [-LOOP_R, LOOP_R], [-LOOP_R, -LOOP_R], [LOOP_R, -LOOP_R]];
+function buildLoopRoad() {
+  const width = 6;
+  for (let i = 0; i < 4; i++) {
+    const a = LOOP_CORNERS[i], b = LOOP_CORNERS[(i + 1) % 4];
+    const midX = (a[0] + b[0]) / 2, midZ = (a[1] + b[1]) / 2;
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]) + width; // small overlap so corners look joined
+    const alongX = Math.abs(b[0] - a[0]) > Math.abs(b[1] - a[1]);
+    const geo = alongX ? new THREE.BoxGeometry(length, 0.06, width) : new THREE.BoxGeometry(width, 0.06, length);
+    const strip = new THREE.Mesh(geo, matRoad);
+    strip.position.set(midX, 0.03, midZ);
+    strip.receiveShadow = true;
+    strip.userData.isSurface = true;
+    scene.add(strip);
+    groundColliders.push(strip);
+  }
+}
+buildLoopRoad();
+
+// distance-along-the-loop parameterization — dist wraps automatically, so a car just
+// keeps adding to it forever with no branching/pathfinding needed
+const LOOP_SIDE = 2 * LOOP_R;
+const LOOP_PERIM = 4 * LOOP_SIDE;
+function pointOnLoop(dist) {
+  dist = ((dist % LOOP_PERIM) + LOOP_PERIM) % LOOP_PERIM;
+  const side = Math.floor(dist / LOOP_SIDE);
+  const t = (dist % LOOP_SIDE) / LOOP_SIDE;
+  const a = LOOP_CORNERS[side], b = LOOP_CORNERS[(side + 1) % 4];
+  return { x: a[0] + (b[0] - a[0]) * t, z: a[1] + (b[1] - a[1]) * t, dx: b[0] - a[0], dz: b[1] - a[1] };
+}
+
+function buildMovingCar(color) {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.35 });
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.1, 1.9), mat);
+  body.position.y = 0.65;
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.7, 1.7), mat);
+  cabin.position.set(-0.2, 1.35, 0);
+  g.add(body, cabin);
+  const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.3, 12);
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
+  [[1.3, 0.75], [1.3, -0.75], [-1.3, 0.75], [-1.3, -0.75]].forEach(([wx, wz]) => {
+    const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(wx, 0.35, wz);
+    g.add(wheel);
+  });
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  scene.add(g);
+  return g;
+}
+
+const movingCars = [];
+for (let i = 0; i < 7; i++) {
+  const group = buildMovingCar(CAR_COLORS[i % CAR_COLORS.length]);
+  movingCars.push({ group, dist: (LOOP_PERIM / 7) * i, speed: rand(4, 7) });
+}
+function updateMovingCars(dt) {
+  movingCars.forEach((car) => {
+    car.dist += car.speed * dt;
+    const p = pointOnLoop(car.dist);
+    car.group.position.set(p.x, 0, p.z);
+    car.group.rotation.y = Math.atan2(-p.dz, p.dx);
+  });
 }
 
 // ---------- Delivery truck (spawned once, the first time an inverter goes live —
@@ -4299,6 +4405,8 @@ function animate() {
   updateInverterSignFlash(dt);
   updateWaterGun(dt);
   updateFires(dt);
+  updateMovingCars(dt);
+  updateWanderers(dt);
   updateFireSpread(dt);
   if (flashTimer > 0) { flashTimer -= dt; if (flashTimer <= 0) muzzleFlash.intensity = 0; }
   if (reloading) {
@@ -4527,4 +4635,5 @@ window.__debug = {
   setPowerSystemsActivated: (v) => { totalPowerSystemsActivated = v; },
   toggleMap, drawMap, mapOpen: () => mapOpen, mapZoom: () => mapZoom,
   setMapZoom: (v) => { mapZoom = v; }, mapCanvas,
+  movingCars, updateMovingCars, wanderers, updateWanderers, pointOnLoop, LOOP_R, LOOP_PERIM,
 };

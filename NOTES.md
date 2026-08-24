@@ -110,9 +110,40 @@ room without redesigning how buildings are constructed (floor slabs +
 interior walls per building), which wasn't done here. Doors are entry-point
 props, not real openings.
 
-Everything living (people, cars, the train) is currently **static/frozen** —
-no movement or animation yet; that was an explicit "later" from the original
-ask, not an oversight.
+The train, the market/park crowd, and most parked cars are still
+**static/frozen** — that was an explicit "later" from the original ask, not
+an oversight. Two small pieces of ambient movement now exist though:
+
+### Perimeter loop road + circling traffic
+
+The building grid only ever occupies roughly -90..90 (ground extends to
+±140), so `buildLoopRoad()` lays a square road (`LOOP_R = 115`, 4
+`matRoad`-colored strips joining `LOOP_CORNERS`, pushed into
+`groundColliders`) well outside every building — cars on it never need to
+navigate around anything or hit a dead end. `pointOnLoop(dist)` parameterizes
+the whole loop as one wrapping distance value (`dist % LOOP_PERIM`), so a
+car (`movingCars`, built with a dedicated `buildMovingCar` that mirrors the
+static `buildCar`'s look but returns the group and skips the wall collider)
+just keeps adding to its own `dist` every frame (`updateMovingCars`) forever
+— no per-segment branching, intersection logic, or dead-end handling needed.
+Rotation each frame comes from the corner-to-corner direction vector
+(`Math.atan2(-dz, dx)`, matching `buildCar`'s existing rotation convention).
+The original scattered parked cars near the central cross are untouched and
+stay static.
+
+### Wandering NPCs (market fountain + park lake)
+
+`buildWanderer(cx, cz, radius, speed, phase, pose)` places one `buildPerson`
+NPC and adds it to `wanderers`; `updateWanderers(dt)` walks its `angle`
+forward each frame and repositions it on a circle around `(cx, cz)` —
+4 around the market fountain (`SPECIAL_ZONES[0]`), 3 around the park lake
+shore (`SPECIAL_ZONES[1]`, radius kept outside `lakeR`), alternating
+clockwise/counterclockwise with a slow, randomized walking-pace angular
+speed. Facing rotation is approximate/cosmetic — `buildPerson`'s silhouette
+has no strong front-facing marker beyond arm poses, so exact heading
+accuracy doesn't matter here the way it does for the boxy, obviously-oriented
+cars. The rest of each zone's crowd (`buildPerson` calls in
+`buildMarketSquare`/`buildParkLake` itself) stays static, unchanged.
 
 Three shared collision/registry arrays, populated as the world builds and
 added to over time as things are placed/removed:
@@ -557,6 +588,22 @@ already-owned item both just toast and leave state untouched.
 
 ## Bug history worth knowing (don't reintroduce these)
 
+- **Duplicate `const matRoad` — whole game fails to load**: the loop-road
+  code declared its own `const matRoad` without checking one already existed
+  (line 132, used for the central cross roads). A duplicate top-level
+  `const` in an ES module is a fatal `SyntaxError` in the browser — the
+  entire script fails to execute, not just the new feature. `node --check`
+  did **not** catch this (it doesn't do full module-scope duplicate-binding
+  analysis the way a browser's module loader does), so it silently passed
+  the usual pre-push check; only caught by actually loading the page and
+  reading the console. Reinforces: `node --check` is a baseline sanity check
+  in this project, not a substitute for a real browser load before pushing.
+  Also separately: a **stale browser tab cache** briefly made a fresh page
+  load in the same long-lived automation tab keep showing this same error
+  even after the fix landed on disk and `curl` confirmed the server was
+  serving the corrected file — a brand-new tab loaded the fix immediately.
+  If a fix "isn't taking" during local verification, try a fresh tab before
+  assuming the fix itself is wrong.
 - **Metal scrap silently crediting as cable**: when the `'metal'` rubble type
   was added, `creditScrap(type, n)` — the shared helper the Demo Tool and `E`
   interact both call to award carried scrap — was never given a `'metal'`
