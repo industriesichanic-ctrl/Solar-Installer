@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <title>Solar Panel Gun — Prototype</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: #0a0f14; }
   canvas { display: block; }
@@ -113,9 +113,74 @@
   .mapOption .num { color: #7fd4ff; font-weight: 700; margin-right: 6px; }
   .mapOption.active .num { color: #ffd54a; }
   .mapOption .sub { display: block; font-size: 10px; color: #8aa; margin-top: 2px; }
+
+  /* ---------- Touch controls (mobile — pointer:coarse) ---------- */
+  #mobileControls {
+    position: fixed; inset: 0; z-index: 8; display: none; touch-action: none;
+    font-family: 'Segoe UI', Arial, sans-serif; -webkit-user-select: none; user-select: none;
+  }
+  #mLookZone { position: absolute; inset: 0; }
+  #mJoystickBase {
+    position: fixed; left: 26px; bottom: 26px; width: 120px; height: 120px;
+    border-radius: 50%; background: rgba(127,212,255,0.12); border: 2px solid rgba(127,212,255,0.4);
+  }
+  #mJoystickKnob {
+    position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px;
+    border-radius: 50%; background: rgba(127,212,255,0.55); border: 2px solid rgba(220,240,255,0.8);
+  }
+  .mBtn {
+    position: fixed; border-radius: 50%; background: rgba(20,28,36,0.7);
+    border: 2px solid rgba(127,212,255,0.5); color: #d8ecff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; touch-action: none;
+  }
+  .mBtn:active { background: rgba(60,90,110,0.85); border-color: #7fd4ff; }
+  #mFire { right: 26px; bottom: 96px; width: 84px; height: 84px; font-size: 13px; background: rgba(120,30,30,0.55); border-color: rgba(255,140,120,0.6); }
+  #mAlt { right: 128px; bottom: 40px; width: 60px; height: 60px; font-size: 11px; }
+  #mJump { right: 26px; bottom: 12px; width: 56px; height: 56px; font-size: 11px; }
+  #mSprint { right: 190px; bottom: 96px; width: 54px; height: 54px; font-size: 10px; }
+  #mCrouch { right: 190px; bottom: 30px; width: 54px; height: 54px; font-size: 10px; }
+  #mReload, #mInteract, #mMap {
+    left: 50%; top: 10px; width: 46px; height: 46px; font-size: 11px; border-radius: 8px;
+  }
+  #mReload { margin-left: 40px; }
+  #mInteract { margin-left: -30px; }
+  #mMap { margin-left: 110px; }
+  #mWeapons {
+    position: fixed; left: 50%; top: 64px; transform: translateX(-50%);
+    display: flex; gap: 5px; touch-action: none;
+  }
+  .mWeaponBtn {
+    width: 32px; height: 32px; border-radius: 6px; background: rgba(20,28,36,0.75);
+    border: 1px solid rgba(127,212,255,0.4); color: #d8ecff; font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; touch-action: none;
+  }
+  .mWeaponBtn:active { background: rgba(60,90,110,0.85); }
 </style>
 </head>
 <body>
+  <div id="mobileControls">
+    <div id="mLookZone"></div>
+    <div id="mJoystickBase"><div id="mJoystickKnob"></div></div>
+    <button id="mFire" class="mBtn">FIRE</button>
+    <button id="mAlt" class="mBtn">ALT</button>
+    <button id="mJump" class="mBtn">JUMP</button>
+    <button id="mSprint" class="mBtn">SPRINT</button>
+    <button id="mCrouch" class="mBtn">CROUCH</button>
+    <button id="mReload" class="mBtn">R</button>
+    <button id="mInteract" class="mBtn">E</button>
+    <button id="mMap" class="mBtn">MAP</button>
+    <div id="mWeapons">
+      <button class="mWeaponBtn" data-key="Digit1">1</button>
+      <button class="mWeaponBtn" data-key="Digit2">2</button>
+      <button class="mWeaponBtn" data-key="Digit3">3</button>
+      <button class="mWeaponBtn" data-key="Digit4">4</button>
+      <button class="mWeaponBtn" data-key="Digit5">5</button>
+      <button class="mWeaponBtn" data-key="Digit6">6</button>
+      <button class="mWeaponBtn" data-key="Digit7">7</button>
+      <button class="mWeaponBtn" data-key="Digit8">8</button>
+      <button class="mWeaponBtn" data-key="Digit0">0</button>
+    </div>
+  </div>
   <div id="mapPanel">
     <h2>Select Map</h2>
     <div class="mapOption" data-map="1">
@@ -167,6 +232,6 @@
     }
   }
   </script>
-  <script type="module" src="./main.js?v=11"></script>
+  <script type="module" src="./main.js?v=12"></script>
 </body>
 </html>

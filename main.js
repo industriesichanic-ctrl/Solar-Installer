@@ -15,6 +15,13 @@ const MAP_ID = Number(urlParams.get('map')) === 2 ? 2 : 1;
 // practically never walk to, which is a known simplification (see NOTES.md).
 const MAP2_ORIGIN = { x: 3000, z: 0 };
 
+// touch-primary devices (phones/tablets) get an on-screen control overlay instead of
+// requiring pointer lock + keyboard — everything underneath (movement, look, firing,
+// weapon switching) is untouched; the touch layer just drives the exact same `keys`
+// Set / synthetic mouse-move / synthetic keydown paths the desktop input already uses,
+// so there's no separate mobile game-logic path to maintain
+const IS_MOBILE = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
 // ============================================================================
 // Solar Panel Gun — open-world prototype
 // Half-Life/Crysis/Hurtworld-style movement (walk/sprint/crouch/jump) in a
@@ -1497,6 +1504,7 @@ const mapCanvas = document.getElementById('mapCanvas');
 const mapCtx = mapCanvas.getContext('2d');
 const mapHint = document.getElementById('mapHint');
 const panelCountEl = document.getElementById('panelCount');
+const mobileControls = document.getElementById('mobileControls');
 const streakToastEl = document.getElementById('streakToast');
 const milestoneBannerEl = document.getElementById('milestoneBanner');
 const milestoneBannerStarsEl = milestoneBannerEl.querySelector('.stars');
@@ -1524,17 +1532,23 @@ function setWeapon(w) {
   waterStreamMesh.visible = false;
 }
 
+function setPlayState(locked) {
+  isLocked = locked;
+  overlay.style.display = locked ? 'none' : 'flex';
+  crosshair.style.display = locked ? 'block' : 'none';
+  hud.style.display = locked ? 'block' : 'none';
+  panelCountEl.style.display = locked ? 'block' : 'none';
+  mapPanel.style.display = locked ? 'none' : 'flex';
+  if (IS_MOBILE) mobileControls.style.display = locked ? 'block' : 'none';
+}
 overlay.addEventListener('click', () => {
+  if (IS_MOBILE) { setPlayState(true); return; } // no real pointer lock on touch devices
   const req = renderer.domElement.requestPointerLock();
   if (req && typeof req.catch === 'function') req.catch(() => {});
 });
 document.addEventListener('pointerlockchange', () => {
-  isLocked = document.pointerLockElement === renderer.domElement;
-  overlay.style.display = isLocked ? 'none' : 'flex';
-  crosshair.style.display = isLocked ? 'block' : 'none';
-  hud.style.display = isLocked ? 'block' : 'none';
-  panelCountEl.style.display = isLocked ? 'block' : 'none';
-  mapPanel.style.display = isLocked ? 'none' : 'flex';
+  if (IS_MOBILE) return; // mobile never requests pointer lock, so never reacts to it either
+  setPlayState(document.pointerLockElement === renderer.domElement);
 });
 
 // ---------- Map picker (start screen only) ----------
@@ -1661,6 +1675,133 @@ document.addEventListener('mouseup', (e) => {
   }
 });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ---------- Touch controls (mobile only) ----------
+// Movement/look/firing all funnel through the exact same code the desktop uses:
+// movement reads the `keys` Set every frame regardless of what put entries in it,
+// look reacts to real `mousemove` events (so a synthetic one with movementX/Y works
+// identically to a real mouse), and firing/weapon-switch/etc. are driven by
+// dispatching synthetic mousedown/mouseup/keydown — the exact same DOM events the
+// existing listeners above already handle. This is deliberate: it means there is no
+// separate "mobile game logic" to keep in sync with the desktop path, only a
+// different way of producing the same events.
+if (IS_MOBILE) {
+  const joystickBase = document.getElementById('mJoystickBase');
+  const joystickKnob = document.getElementById('mJoystickKnob');
+  const lookZone = document.getElementById('mLookZone');
+  const JOY_RADIUS = 55;
+  let joyTouchId = null;
+  let joyBaseX = 0, joyBaseY = 0;
+  let lookTouchId = null;
+  let lookLastX = 0, lookLastY = 0;
+
+  function setJoystickKeys(dx, dz) {
+    // dx/dz already normalized-ish (screen-space drag vector); an 8-way deadzone
+    // snap onto the same WASD keys the keyboard would set, rather than true analog
+    // movement — this game's movement code only ever checks keys.has(...), not speed
+    const dead = 0.28;
+    if (dz < -dead) keys.add('KeyW'); else keys.delete('KeyW');
+    if (dz > dead) keys.add('KeyS'); else keys.delete('KeyS');
+    if (dx > dead) keys.add('KeyD'); else keys.delete('KeyD');
+    if (dx < -dead) keys.add('KeyA'); else keys.delete('KeyA');
+  }
+  function clearJoystickKeys() {
+    keys.delete('KeyW'); keys.delete('KeyS'); keys.delete('KeyA'); keys.delete('KeyD');
+  }
+
+  joystickBase.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    joyTouchId = t.identifier;
+    const rect = joystickBase.getBoundingClientRect();
+    joyBaseX = rect.left + rect.width / 2;
+    joyBaseY = rect.top + rect.height / 2;
+  }, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === joyTouchId) {
+        e.preventDefault();
+        let dx = t.clientX - joyBaseX, dy = t.clientY - joyBaseY;
+        const dist = Math.hypot(dx, dy);
+        if (dist > JOY_RADIUS) { dx = (dx / dist) * JOY_RADIUS; dy = (dy / dist) * JOY_RADIUS; }
+        joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+        setJoystickKeys(dx / JOY_RADIUS, dy / JOY_RADIUS);
+      } else if (t.identifier === lookTouchId) {
+        e.preventDefault();
+        const dx = t.clientX - lookLastX, dy = t.clientY - lookLastY;
+        lookLastX = t.clientX; lookLastY = t.clientY;
+        document.dispatchEvent(new MouseEvent('mousemove', { movementX: dx, movementY: dy }));
+      }
+    }
+  }, { passive: false });
+  function endJoystick(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === joyTouchId) {
+        joyTouchId = null;
+        joystickKnob.style.transform = 'translate(0px, 0px)';
+        clearJoystickKeys();
+      }
+    }
+  }
+  document.addEventListener('touchend', endJoystick);
+  document.addEventListener('touchcancel', endJoystick);
+
+  lookZone.addEventListener('touchstart', (e) => {
+    if (lookTouchId !== null) return;
+    const t = e.changedTouches[0];
+    lookTouchId = t.identifier;
+    lookLastX = t.clientX; lookLastY = t.clientY;
+  }, { passive: false });
+  function endLook(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookTouchId) lookTouchId = null;
+    }
+  }
+  document.addEventListener('touchend', endLook);
+  document.addEventListener('touchcancel', endLook);
+
+  // held buttons: add/remove from `keys` (movement-style) or synthesize
+  // mousedown/mouseup (weapon-action-style) for the duration of the touch
+  function bindHeldKey(id, code) {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); keys.add(code); }, { passive: false });
+    el.addEventListener('touchend', (e) => { e.preventDefault(); keys.delete(code); }, { passive: false });
+    el.addEventListener('touchcancel', () => keys.delete(code));
+  }
+  function bindHeldMouseButton(id, button) {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      document.dispatchEvent(new MouseEvent('mousedown', { button }));
+    }, { passive: false });
+    el.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      document.dispatchEvent(new MouseEvent('mouseup', { button }));
+    }, { passive: false });
+  }
+  function bindTapKey(id, code) {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      document.dispatchEvent(new KeyboardEvent('keydown', { code }));
+    }, { passive: false });
+  }
+
+  bindHeldMouseButton('mFire', 0);
+  bindHeldMouseButton('mAlt', 2);
+  bindHeldKey('mJump', 'Space');
+  bindHeldKey('mSprint', 'ShiftLeft');
+  bindHeldKey('mCrouch', 'KeyC');
+  bindTapKey('mReload', 'KeyR');
+  bindTapKey('mInteract', 'KeyE');
+  bindTapKey('mMap', 'KeyM');
+  document.querySelectorAll('.mWeaponBtn').forEach((btn) => {
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      document.dispatchEvent(new KeyboardEvent('keydown', { code: btn.dataset.key }));
+    }, { passive: false });
+  });
+}
 
 // ---------- Radar / full map (M to toggle, scroll to zoom while open) ----------
 let mapOpen = false;
@@ -4859,4 +5000,6 @@ window.__debug = {
   movingCars, updateMovingCars, wanderers, updateWanderers, pointOnLoop, LOOP_R, LOOP_PERIM,
   MAP_ID, MAP2_ORIGIN, map2Trees, fireTreeCutter, computeMap2ProgressKw, checkMap2Goal,
   map2GoalReached: () => map2GoalReached, inverterCapacityKw, MAP2_INVERTER_CAPACITY_KW,
+  IS_MOBILE, setPlayState, mobileControls, keysHas: (code) => keys.has(code),
+  mouseDownState: () => mouseDown, yawState: () => yaw,
 };

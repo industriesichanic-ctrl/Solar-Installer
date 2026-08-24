@@ -4,6 +4,48 @@ Working notes on how the current systems fit together, for picking this project
 back up in a fresh chat. The code (`main.js` + `index.html`) is the source of
 truth — this is a map of *why* things work the way they do, not a spec.
 
+## Mobile / touch controls
+
+`IS_MOBILE` (`window.matchMedia('(pointer: coarse)').matches`, checked once
+at load) gates an entirely separate *input* layer with zero separate *game
+logic* — the design goal was that desktop stays byte-for-byte behaviorally
+unchanged, and mobile just produces the same events the keyboard/mouse
+already would:
+- **Movement**: the joystick (`#mJoystickBase`/`#mJoystickKnob`, fixed
+  bottom-left) doesn't drive position directly — it adds/removes `KeyW`/`A`/
+  `S`/`D` from the same `keys` Set the keyboard handler uses, snapped to an
+  8-way deadzone (`setJoystickKeys`), since the movement code only ever
+  calls `keys.has(...)`, never reads an analog magnitude.
+- **Look**: dragging `#mLookZone` (full-screen, *behind* every button/
+  joystick in DOM order, so touches on those hit them first, not the look
+  zone underneath) dispatches a real `document.dispatchEvent(new
+  MouseEvent('mousemove', { movementX, movementY }))` per frame of drag —
+  the existing `mousemove` listener that drives `yaw`/`pitch` doesn't know
+  or care that the event was synthetic.
+- **Firing / secondary action**: `#mFire`/`#mAlt` dispatch synthetic
+  `mousedown`/`mouseup` with `button: 0`/`2` for the duration of the touch —
+  every weapon's existing per-weapon LMB/RMB branching in the real
+  `mousedown` listener runs completely unmodified.
+- **Jump / sprint / crouch**: `#mJump`/`#mSprint`/`#mCrouch` add/remove
+  `Space`/`ShiftLeft`/`KeyC` from `keys` for the duration of the touch, same
+  as the joystick.
+- **Reload / interact / map / weapon switch**: `#mReload`/`#mInteract`/
+  `#mMap`/`.mWeaponBtn` dispatch a one-shot synthetic `keydown` with the
+  matching `code` on tap — same `keydown` listener the keyboard uses.
+
+`setPlayState(locked)` replaces the old inline pointer-lock-only show/hide
+logic — desktop still calls it from `pointerlockchange` exactly as before,
+but on mobile there's no real Pointer Lock (touch devices don't meaningfully
+support it), so tapping the start overlay calls `setPlayState(true)`
+directly and `pointerlockchange` is ignored entirely (`if (IS_MOBILE)
+return;` at the top of that handler).
+
+Known gap: the full map's scroll-to-zoom (`mapZoom`, desktop `wheel`
+listener) has no touch equivalent yet (no pinch-to-zoom) — `M` still opens
+it, it just always opens at the default zoom on mobile. Not implemented due
+to time, not a design decision — worth adding if mobile map use turns out
+to matter.
+
 ## Maps
 
 The start screen's `#mapPanel` (left column, `index.html`) lists 10 map
