@@ -5445,50 +5445,67 @@ let selectedJobTile = null;
 // inner ring, each with a clerk behind it and a little sample of that job's tool
 // sitting on the counter (only Solar/Plumber get a real prop; locked jobs get a
 // grey placeholder block).
-const JOB_HUT_X = -6, JOB_HUT_Z = 30, JOB_HUT_R = 15;
+const JOB_HUT_X = -6, JOB_HUT_Z = 30, JOB_HUT_R = 12;
 // same relative offset from a map's own spawn point every time, so every map's hut
 // sits in the same "just off to the side" spot the city's does
 const JOB_HUT_OFFSET = { dx: JOB_HUT_X, dz: JOB_HUT_Z };
-function buildJobHut(hx = JOB_HUT_X, hz = JOB_HUT_Z) {
+// distance between the two circles' centers — < 2*JOB_HUT_R so they overlap into a
+// figure-8, with the overlap's exact midpoint reserved for Solar's pedestal
+const JOB_HUT_CIRCLE_GAP = 18;
+// the 24 non-Solar jobs split into two groups of 12 "relevant/similar" trades —
+// Group A leans structural/build trades, Group B leans outdoor/finishing/utility
+const JOB_HUT_GROUP_A = ['plumber', 'carpenter', 'bricklayer', 'concreter', 'roofer', 'glazier', 'fencer', 'electrician', 'aircon', 'heatpump', 'demolition', 'roadbuilder'];
+const JOB_HUT_GROUP_B = ['landscaper', 'painter', 'telecom', 'lampfixer', 'signage', 'irrigation', 'waste', 'poolbuilder', 'fountain', 'muralist', 'security', 'playground'];
+
+const pillarMat = new THREE.MeshStandardMaterial({ color: 0xc9c0ab, roughness: 0.7 });
+const domeMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.5, side: THREE.DoubleSide });
+const deskMat = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.6, metalness: 0.3 });
+const sampleMats = { solar: matPanel, plumber: matPipeCopper };
+
+// one circle of the figure-8 — floor, pillars (skipping a wedge facing the other
+// circle so the two are walkable into each other), dome, and desks for `jobsList`,
+// spread across the remaining ~300° arc away from that shared wedge
+function buildHutCircle(cx, cz, awayAngle, jobsList) {
   const domeR = JOB_HUT_R;
+  const gapHalfAngle = (30 * Math.PI) / 180; // 60°-wide wedge left open toward the other circle
 
   const floor = new THREE.Mesh(new THREE.CircleGeometry(domeR, 48), matPlaza);
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set(hx, 0.02, hz);
+  floor.position.set(cx, 0.02, cz);
   floor.receiveShadow = true;
   floor.userData.isSurface = true;
   scene.add(floor);
   groundColliders.push(floor);
 
-  const pillarMat = new THREE.MeshStandardMaterial({ color: 0xc9c0ab, roughness: 0.7 });
+  const facingOtherCircle = awayAngle + Math.PI;
   const pillarCount = 16;
   for (let i = 0; i < pillarCount; i++) {
     const a = (i / pillarCount) * Math.PI * 2;
-    const px = hx + Math.cos(a) * domeR, pz = hz + Math.sin(a) * domeR;
+    let da = Math.abs(a - facingOtherCircle) % (Math.PI * 2);
+    if (da > Math.PI) da = Math.PI * 2 - da;
+    if (da < gapHalfAngle) continue; // leave the connecting wedge clear of pillars
+    const px = cx + Math.cos(a) * domeR, pz = cz + Math.sin(a) * domeR;
     const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.4, 6, 10), pillarMat);
     pillar.position.set(px, 3, pz);
     pillar.castShadow = true;
     scene.add(pillar);
-    addWallBox(px - 0.35, px + 0.35, pz - 0.35, pz + 0.35, 0, 6); // wide gaps between pillars, easy to walk through
+    addWallBox(px - 0.35, px + 0.35, pz - 0.35, pz + 0.35, 0, 6);
   }
-  const domeMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.5, side: THREE.DoubleSide });
   const dome = new THREE.Mesh(new THREE.SphereGeometry(domeR + 0.8, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2), domeMat);
-  dome.position.set(hx, 6, hz);
+  dome.position.set(cx, 6, cz);
   dome.castShadow = true;
   scene.add(dome);
 
-  const doorSign = makeTextSprite('JOB HUT', { fontSize: 60, color: '#ffd54a', border: '#ff9a4d', scale: 1.1 });
-  doorSign.position.set(hx, 8.2, hz);
-  scene.add(doorSign);
-
-  // 25 desks around the inner ring, each facing the center
-  const deskR = domeR - 3.5;
-  const deskMat = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.6, metalness: 0.3 });
-  const sampleMats = { solar: matPanel, plumber: matPipeCopper };
-  JOBS.forEach((job, i) => {
-    const a = (i / JOBS.length) * Math.PI * 2;
-    const dx = hx + Math.cos(a) * deskR, dz = hz + Math.sin(a) * deskR;
-    const facing = a + Math.PI; // desk front faces the dome's center
+  // 12 desks spread over the 300° arc centered on "away from the other circle"
+  const deskR = domeR - 3;
+  const spreadAngle = ((360 - 60) * Math.PI) / 180;
+  jobsList.forEach((jobId, i) => {
+    const job = JOBS.find((j) => j.id === jobId);
+    if (!job) return;
+    const t = jobsList.length > 1 ? i / (jobsList.length - 1) : 0.5;
+    const a = awayAngle - spreadAngle / 2 + t * spreadAngle;
+    const dx = cx + Math.cos(a) * deskR, dz = cz + Math.sin(a) * deskR;
+    const facing = a + Math.PI;
 
     const desk = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 0.7), deskMat);
     desk.position.set(dx, 0.5, dz);
@@ -5498,17 +5515,15 @@ function buildJobHut(hx = JOB_HUT_X, hz = JOB_HUT_Z) {
     scene.add(desk);
     groundColliders.push(desk);
 
-    // a little sample of the job's tool sitting on the counter
     const sampleMat = job.unlocked ? (sampleMats[job.id] || matGhostGood) : new THREE.MeshStandardMaterial({ color: 0x3a3a3e, roughness: 0.8 });
     const sample = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.15, 0.35), sampleMat);
     sample.position.set(dx + Math.sin(facing) * 0.15, 1.08, dz + Math.cos(facing) * 0.15);
     sample.rotation.y = facing;
     scene.add(sample);
 
-    // clerk behind the desk (further from center)
     const clerkR = deskR + 0.9;
-    const cx = hx + Math.cos(a) * clerkR, cz = hz + Math.sin(a) * clerkR;
-    buildPerson(cx, cz, facing, job.unlocked ? 'talk' : 'stand');
+    const pcx = cx + Math.cos(a) * clerkR, pcz = cz + Math.sin(a) * clerkR;
+    buildPerson(pcx, pcz, facing, job.unlocked ? 'talk' : 'stand');
 
     const label = job.unlocked ? `${job.icon} ${job.name}` : `${job.icon} ${job.name} 🔒`;
     const sprite = makeTextSprite(label, {
@@ -5522,6 +5537,55 @@ function buildJobHut(hx = JOB_HUT_X, hz = JOB_HUT_Z) {
 
     jobTileMeshes.push({ mesh: desk, job, dx, dz, facing });
   });
+}
+
+function buildJobHut(hx = JOB_HUT_X, hz = JOB_HUT_Z) {
+  const half = JOB_HUT_CIRCLE_GAP / 2;
+  const cAx = hx - half, cBx = hx + half;
+  buildHutCircle(cAx, hz, Math.PI, JOB_HUT_GROUP_A); // faces away = pointing -X (left)
+  buildHutCircle(cBx, hz, 0, JOB_HUT_GROUP_B);        // faces away = pointing +X (right)
+
+  const doorSign = makeTextSprite('JOB HUT', { fontSize: 60, color: '#ffd54a', border: '#ff9a4d', scale: 1.1 });
+  doorSign.position.set(hx, 8.2, hz);
+  scene.add(doorSign);
+
+  // Solar Installer's pedestal, right where the two circles overlap
+  const solarJob = JOBS.find((j) => j.id === 'solar');
+  const pedMat = new THREE.MeshStandardMaterial({ color: 0xffd54a, roughness: 0.4, metalness: 0.4, emissive: 0x5a4008, emissiveIntensity: 0.3 });
+  const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.7, 0.6, 24), pedMat);
+  pedestal.position.set(hx, 0.32, hz);
+  pedestal.castShadow = true;
+  pedestal.receiveShadow = true;
+  pedestal.userData.isSurface = true;
+  scene.add(pedestal);
+  groundColliders.push(pedestal);
+
+  const canopy = new THREE.Mesh(new THREE.SphereGeometry(4.5, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), domeMat.clone());
+  canopy.position.set(hx, 0.6 + 4.2, hz);
+  canopy.castShadow = true;
+  scene.add(canopy);
+
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 0.7), deskMat);
+  desk.position.set(hx, 0.62 + 0.5, hz + 1.2);
+  desk.rotation.y = Math.PI;
+  desk.castShadow = true;
+  desk.receiveShadow = true;
+  scene.add(desk);
+  groundColliders.push(desk);
+
+  const sample = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.15, 0.35), matPanel);
+  sample.position.set(hx, 0.62 + 1.08, hz + 1.05);
+  scene.add(sample);
+
+  buildPerson(hx, hz + 2.1, Math.PI, 'talk');
+
+  const label = makeTextSprite(`${solarJob.icon} ${solarJob.name}`, {
+    fontSize: 30, color: '#ffe9b0', border: '#ffd54a', scale: 0.5,
+  });
+  label.position.set(hx, 0.62 + 1.7, hz + 1.2);
+  scene.add(label);
+
+  jobTileMeshes.push({ mesh: desk, job: solarJob, dx: hx, dz: hz + 1.2, facing: Math.PI });
 }
 buildJobHut(); // Map 1's — always built, matches this file's existing "city is always
                 // built regardless of MAP_ID" precedent (see the MAP_ID comment up top)
@@ -6494,16 +6558,18 @@ function buildSolarFarmMap() {
     if (Math.abs(tx - arrayCx) < 35 && Math.abs(tz - arrayCz) < 25) continue; // keep the array clear
     if (Math.abs(tx - hardstandCx) < 30 && Math.abs(tz - hardstandCz) < 20) continue; // keep the hardstand clear
     if (Math.hypot(tx - ox, tz - (oz + 6)) < 8) continue; // keep spawn clear
-    if (Math.hypot(tx - (ox + JOB_HUT_OFFSET.dx), tz - (oz + JOB_HUT_OFFSET.dz)) < JOB_HUT_R + 3) continue; // keep the Job Hut clear
+    if (nearJobHut(tx, tz, ox, oz)) continue; // keep the Job Hut clear
     buildCuttableTree(tx, tz);
   }
 }
 if (MAP_ID === 2) buildSolarFarmMap();
 
 // shared by every sandbox map's scatter loops to keep props from spawning inside/on
-// top of that map's own Job Hut dome
+// top of that map's own figure-8 Job Hut (its footprint reaches half the inter-circle
+// gap further out than a single dome's radius would)
+const JOB_HUT_FOOTPRINT_R = JOB_HUT_CIRCLE_GAP / 2 + JOB_HUT_R + 3;
 function nearJobHut(x, z, ox, oz) {
-  return Math.hypot(x - (ox + JOB_HUT_OFFSET.dx), z - (oz + JOB_HUT_OFFSET.dz)) < JOB_HUT_R + 3;
+  return Math.hypot(x - (ox + JOB_HUT_OFFSET.dx), z - (oz + JOB_HUT_OFFSET.dz)) < JOB_HUT_FOOTPRINT_R;
 }
 
 // ============================================================================

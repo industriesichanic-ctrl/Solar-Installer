@@ -418,6 +418,47 @@ drain rate); stopping at 0% locks in a regen rate of exactly 10 (100 over
 `background-color` both update correctly for all three bands. Not yet
 played live with real Shift-key input to confirm the on-screen feel.
 
+### Job Hut rebuilt as a figure-8 (v24)
+
+Replaced the single 25-desk dome with two overlapping domes (`JOB_HUT_R`
+12 each, centers `JOB_HUT_CIRCLE_GAP` (18) apart so they overlap into a
+figure-8) plus a raised pedestal for Solar Installer exactly at the
+midpoint where they meet:
+- `buildHutCircle(cx, cz, awayAngle, jobsList)` builds one circle: floor,
+  16 pillars, a dome, and up to 12 desks. `awayAngle` is the direction
+  pointing away from the *other* circle — pillars within a 60°-wide wedge
+  facing the other circle are skipped entirely (so the two domes are
+  walkable into each other through the overlap), and the 12 desks are
+  spread across the remaining 300° arc instead of a full circle, so no
+  desk ends up sitting in that same connecting wedge.
+- The 24 non-Solar jobs are split into two hand-picked groups of 12
+  (`JOB_HUT_GROUP_A`/`B`) — A leans structural/build trades (plumber,
+  carpenter, bricklayer, concreter, roofer, glazier, fencer, electrician,
+  aircon, heatpump, demolition, roadbuilder), B leans outdoor/finishing/
+  utility trades (landscaper, painter, telecom, lampfixer, signage,
+  irrigation, waste, poolbuilder, fountain, muralist, security,
+  playground) — "relevant/similar jobs grouped together," per the request.
+- Solar's pedestal: a raised gold-tinted cylinder platform with its own
+  small canopy dome, desk, clerk, and label, positioned at `(hx, hz)` —
+  the shared midpoint between the two circle centers, `JOB_HUT_CIRCLE_GAP
+  / 2` from each.
+- `nearJobHut`'s exclusion radius (used by every sandbox map's prop
+  scatter loops) grew from a single dome's radius to
+  `JOB_HUT_CIRCLE_GAP / 2 + JOB_HUT_R + 3` (`JOB_HUT_FOOTPRINT_R`) to
+  cover the wider two-circle footprint.
+- Materials that used to be built fresh inside the old single
+  `buildJobHut()` (`pillarMat`, `domeMat`, `deskMat`, `sampleMats`) are now
+  module-level consts shared by both circles and the pedestal, rather than
+  being recreated per call — same visual result, less redundant material
+  churn per map's hut.
+
+Verified live on both Map 1 and Map 4 (Badlands): 25 total desks per hut
+(12 + 12 + Solar's pedestal), Solar's desk lands exactly at the
+figure-8's shared midpoint, `jobIds` list confirms every job landed in
+its intended group, no console errors, scene child count stayed
+reasonable (~4069 on Map 1 with all four maps' geometry loaded, since
+every map's hut is built per the existing per-map gating).
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic
