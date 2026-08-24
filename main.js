@@ -2024,7 +2024,7 @@ function spawnFireEffect(pos, persistent = false) {
   farSprite.scale.set(1.1, 1.65, 1);
   scene.add(farSprite);
 
-  const f = { group: null, flames: null, smokes: null, light: null, farSprite, pos: pos.clone(), t: 4.5, dur: 4.5, persistent, near: null };
+  const f = { group: null, flames: null, smokes: null, light: null, farSprite, pos: pos.clone(), t: 4.5, dur: 4.5, persistent, near: null, flickerT: 0, flickerInterval: 1 + Math.random() };
   activeFires.push(f);
   const near = camera.position.distanceToSquared(pos) < FIRE_LOD_RADIUS * FIRE_LOD_RADIUS;
   f.near = near;
@@ -2061,37 +2061,45 @@ function updateFires(dt) {
       continue;
     }
 
-    if (f.persistent) {
-      f.t = (f.t - dt) % f.dur; // loops forever, only used to drive the flicker cycle
+    // Flames/smoke no longer re-randomize every frame (that constant per-frame
+    // scale/opacity churn was the "flashing" and the perf cost) — instead they
+    // hold a fixed pose and only swap to a new one every 1-2s, like two
+    // alternating flame frames and two alternating smoke frames.
+    f.flickerT += dt;
+    const flip = f.flickerT >= f.flickerInterval;
+    if (flip) {
+      f.flickerT = 0;
+      f.flickerInterval = 1 + Math.random();
       f.flames.forEach((fl) => {
         const s = 0.7 + Math.random() * 0.6;
         fl.scale.set(s, s, s);
-        fl.material.opacity = 0.85;
       });
       f.smokes.forEach((sm) => {
-        sm.position.y += sm.userData.riseSpeed * dt;
-        sm.scale.multiplyScalar(1 + dt * 0.4);
-        sm.material.opacity = Math.max(0, 0.5 * (1 - sm.scale.x / (sm.userData.baseScale * 4)));
-        if (sm.scale.x > sm.userData.baseScale * 4) { // recycle back to the base once it's puffed out
-          sm.position.set((Math.random() - 0.5) * 0.3, 0.3 + Math.random() * 0.2, (Math.random() - 0.5) * 0.3);
-          sm.scale.setScalar(sm.userData.baseScale);
-        }
+        sm.userData.frame = sm.userData.frame ? 0 : 1;
+        const spread = sm.userData.frame ? 1 : 0.6;
+        sm.position.set(
+          (Math.random() - 0.5) * 0.3 * spread,
+          0.3 + sm.userData.frame * 0.25,
+          (Math.random() - 0.5) * 0.3 * spread
+        );
+        sm.scale.setScalar(sm.userData.baseScale * (sm.userData.frame ? 1.3 : 1));
       });
-      f.light.intensity = 3.2 + Math.sin(f.t * 9) * 0.4;
+    }
+
+    if (f.persistent) {
+      if (flip) {
+        f.flames.forEach((fl) => { fl.material.opacity = 0.85; });
+        f.smokes.forEach((sm) => { sm.material.opacity = sm.userData.frame ? 0.25 : 0.5; });
+      }
+      f.light.intensity = 3.2;
       continue;
     }
     f.t -= dt;
     const life = Math.max(0, f.t / f.dur);
-    f.flames.forEach((fl) => {
-      const s = 0.7 + Math.random() * 0.6;
-      fl.scale.set(s, s, s);
-      fl.material.opacity = 0.85 * life;
-    });
-    f.smokes.forEach((sm) => {
-      sm.position.y += sm.userData.riseSpeed * dt;
-      sm.scale.multiplyScalar(1 + dt * 0.4);
-      sm.material.opacity = Math.max(0, 0.5 * life);
-    });
+    if (flip) {
+      f.flames.forEach((fl) => { fl.material.opacity = 0.85 * life; });
+      f.smokes.forEach((sm) => { sm.material.opacity = Math.max(0, (sm.userData.frame ? 0.25 : 0.5) * life); });
+    }
     f.light.intensity = 3.2 * life;
     if (f.t <= 0) { removeFireEffect(f); }
   }
@@ -2227,6 +2235,46 @@ function advanceBuildingFire(b) {
   }
 }
 
+// once the walls/roof are gone, anything that was mounted on this building (panels,
+// inverters, and the cable runs between them) has nothing left to hang on — they fall
+// and land in a scrap pile on the ground directly beneath where each was installed,
+// rather than being left floating in mid-air
+function collapseInstalledEquipment(b) {
+  const margin = 0.5;
+  const inBounds = (x, z) => x >= b.minX - margin && x <= b.maxX + margin && z >= b.minZ - margin && z <= b.maxZ + margin;
+
+  Array.from(cables).forEach((c) => {
+    const sIn = c.startAnchor && inBounds(c.startAnchor.obj.pos.x, c.startAnchor.obj.pos.z);
+    const eIn = c.endAnchor && inBounds(c.endAnchor.obj.pos.x, c.endAnchor.obj.pos.z);
+    if (sIn || eIn) destroyCable(c, true);
+  });
+
+  Array.from(panels).forEach((p) => {
+    if (!inBounds(p.pos.x, p.pos.z)) return;
+    if (p.fireRecord) removeFireEffect(p.fireRecord);
+    scene.remove(p.mesh);
+    const gi = groundColliders.indexOf(p.mesh);
+    if (gi >= 0) groundColliders.splice(gi, 1);
+    const bodyMesh = p.mesh.children.find((c) => c.material === matPanel || c.material === matPanelLarge);
+    const wi = worldMeshes.indexOf(bodyMesh);
+    if (wi >= 0) worldMeshes.splice(wi, 1);
+    removePanelFromGroups(p);
+    const idx = panels.indexOf(p);
+    if (idx >= 0) panels.splice(idx, 1);
+    totalWattsInstalled -= p.watts;
+    dropScrap(p.pos, 'panel');
+  });
+
+  Array.from(inverters).forEach((inv) => {
+    if (!inBounds(inv.pos.x, inv.pos.z)) return;
+    if (inv.fireRecord) removeFireEffect(inv.fireRecord);
+    removeInverterFromWorld(inv);
+    if (inv.groupId && inverterGroups.has(inv.groupId)) inverterGroups.get(inv.groupId).delete(inv);
+    selectedInverters.delete(inv);
+    dropScrap(inv.pos, 'panel');
+  });
+}
+
 function finishDemolition(b, st) {
   st.rubbleSpawned = true;
   if (b.bodyMesh) {
@@ -2240,6 +2288,7 @@ function finishDemolition(b, st) {
     const ci = wallColliders.indexOf(b.wallRef);
     if (ci >= 0) wallColliders.splice(ci, 1);
   }
+  collapseInstalledEquipment(b);
   const midX = (b.minX + b.maxX) / 2, midZ = (b.minZ + b.maxZ) / 2;
   const pileRadius = Math.max(2, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) / 2);
   for (let i = 0; i < 10; i++) {
