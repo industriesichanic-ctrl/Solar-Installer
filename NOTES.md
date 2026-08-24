@@ -4,6 +4,31 @@ Working notes on how the current systems fit together, for picking this project
 back up in a fresh chat. The code (`main.js` + `index.html`) is the source of
 truth — this is a map of *why* things work the way they do, not a spec.
 
+## Deployment
+
+This repo is a plain static site (`index.html` + `main.js`, Three.js loaded
+from a CDN via import map) hosted on **GitHub Pages** at:
+
+```
+https://industriesichanic-ctrl.github.io/Solar-Installer/
+```
+
+It auto-redeploys within a minute or two of any push to `main`. To push
+changes, from a terminal opened in this folder (`solar_gun_prototype`):
+
+```bash
+git add index.html main.js
+git commit -m "describe the change here"
+git push
+```
+
+(Add other files, e.g. `NOTES.md`, to the `git add` line if they changed too.)
+No build step, no `npm install` — it's served exactly as committed. The repo
+already has its remote configured (`origin` → the GitHub repo above), so
+`git push` alone is enough once there's a commit to send. If `git push` ever
+fails with "repository not found" or similar, check `git remote -v` — the
+remote URL must exactly match the repo name/owner on GitHub.
+
 ## World
 
 Open-world Three.js FPS. Procedurally placed buildings on a road grid, plus a
