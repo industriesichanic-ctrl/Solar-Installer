@@ -1,5 +1,20 @@
 import * as THREE from 'three';
 
+// ---------- Map selection ----------
+// Which map to build is decided ONCE, from a URL query param, before any world
+// geometry runs — everything below that reads MAP_ID branches on it, but nothing
+// tears down/rebuilds a running scene; switching maps is a full page reload
+// (see the mapPanel click handler further down), which is simpler and far lower
+// risk than trying to make one page own multiple live worlds.
+const urlParams = new URLSearchParams(location.search);
+const MAP_ID = Number(urlParams.get('map')) === 2 ? 2 : 1;
+// Map 2's world sits at a huge offset from Map 1's (-140..140), rather than Map 1's
+// city being conditionally skipped — Map 1's whole world-build is a large amount of
+// existing, working top-level code that would be risky to wrap in a map check.
+// Building it even in Map 2 mode costs some memory/CPU for a city the player will
+// practically never walk to, which is a known simplification (see NOTES.md).
+const MAP2_ORIGIN = { x: 3000, z: 0 };
+
 // ============================================================================
 // Solar Panel Gun — open-world prototype
 // Half-Life/Crysis/Hurtworld-style movement (walk/sprint/crouch/jump) in a
@@ -32,6 +47,11 @@ const INVERTER_TIER_DIMS = [{ w: 0.55, h: 0.75 }, { w: 0.9, h: 1.2 }, { w: 1.45,
 const INVERTER_STEP = 1.4; // wider than panel spacing, per spec
 const INVERTER_THICK = 0.2;
 const INVERTER_CAPACITY_KW = [3, 10, 20, 50]; // per tier: standard, big, bigger, biggest
+const MAP2_INVERTER_CAPACITY_KW = [25, 50, 100, 250]; // Map 2's utility-scale inverters
+function inverterCapacityKw(tier) {
+  const table = MAP_ID === 2 ? MAP2_INVERTER_CAPACITY_KW : INVERTER_CAPACITY_KW;
+  return table[Math.min(tier, table.length - 1)];
+}
 const PANEL_THICK = 0.06;
 const MIN_PANEL_SPACING = PANEL_SIZE * 0.92;
 const BATTERY_CAPACITY_KWH = [2, 5, 20, 50]; // per tier, mirrors INVERTER_CAPACITY_KW's non-linear scaling
@@ -105,7 +125,8 @@ scene.background = new THREE.Color(0x8fc7e8);
 scene.fog = new THREE.FogExp2(0x8fc7e8, 0.011);
 
 const camera = new THREE.PerspectiveCamera(74, window.innerWidth / window.innerHeight, 0.05, 400);
-camera.position.set(0, effStandHeight(), 6);
+const SPAWN_POS = MAP_ID === 2 ? { x: MAP2_ORIGIN.x, z: MAP2_ORIGIN.z + 6 } : { x: 0, z: 6 };
+camera.position.set(SPAWN_POS.x, effStandHeight(), SPAWN_POS.z);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -1513,6 +1534,20 @@ document.addEventListener('pointerlockchange', () => {
   crosshair.style.display = isLocked ? 'block' : 'none';
   hud.style.display = isLocked ? 'block' : 'none';
   panelCountEl.style.display = isLocked ? 'block' : 'none';
+  mapPanel.style.display = isLocked ? 'none' : 'flex';
+});
+
+// ---------- Map picker (start screen only) ----------
+const mapPanel = document.getElementById('mapPanel');
+mapPanel.querySelectorAll('.mapOption').forEach((el) => {
+  const id = Number(el.dataset.map);
+  if (id === MAP_ID) el.classList.add('active');
+  if (el.classList.contains('locked')) return;
+  el.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't let the click fall through to overlay's pointer-lock request
+    if (id === MAP_ID) return;
+    location.href = id === 1 ? location.pathname : `${location.pathname}?map=${id}`;
+  });
 });
 
 let yaw = 0, pitch = 0;
@@ -1584,7 +1619,10 @@ document.addEventListener('mousedown', (e) => {
 
   if (currentWeapon === 1) {
     if (e.button === 0) mouseDown = true;
-    if (e.button === 2) {
+    // Map 2's weapon 1 is the tree cutter (see fire()) — no RMB action, and
+    // critically no pickUpNearestPanel, which would otherwise let the player
+    // "salvage" the fixed 1MW array anchors right back out of the world
+    if (e.button === 2 && MAP_ID !== 2) {
       if (unlockedAreaTool) beginAreaDragCandidate();
       else pickUpNearestPanel();
     }
@@ -1937,7 +1975,7 @@ function createInverterMesh(point, normal, tier) {
   indicator.position.set(0, thick / 2 + 0.02, dims.h * 0.32);
   group.add(body, vent, indicator);
 
-  const capacityKw = INVERTER_CAPACITY_KW[Math.min(tier, INVERTER_CAPACITY_KW.length - 1)];
+  const capacityKw = inverterCapacityKw(tier);
   const capacitySign = makeTextSprite(`0.0/${capacityKw}kW`, { fontSize: 46, color: '#ffe9b0', border: '#ffd54a', scale: 0.42 });
   capacitySign.position.set(0, thick / 2 + 0.3, dims.h * 0.55);
   const productionSign = makeTextSprite('0 kWh', { fontSize: 44, color: '#8aff9e', border: '#4dff88', scale: 0.32 });
@@ -2905,6 +2943,19 @@ function pickUpNearestPanel() {
 function fire() {
   if (reloading || fireCooldown > 0) return;
 
+  // Map 2 replaces the Solar Panel Gun's LMB entirely with the tree cutter — see
+  // fireTreeCutter/map2Trees, built only when MAP_ID === 2. Same ammo/cooldown
+  // economy as the normal panel gun, just a different action.
+  if (MAP_ID === 2) {
+    if (ammo <= 0) { reload(); return; }
+    fireCooldown = FIRE_COOLDOWN * upgrades.fireRateMul;
+    ammo--;
+    flashTimer = 0.06;
+    muzzleFlash.intensity = 3.5;
+    fireTreeCutter();
+    return;
+  }
+
   if (blockPlaceMode && upgrades.blockPlacementUnlocked) {
     const target = getPlacementTarget();
     const result = target ? computeBlockCells(target) : null;
@@ -3117,7 +3168,7 @@ function collectInverterNetwork(startInv) {
   let watts = 0;
   visitedPanels.forEach((p) => { watts += p.watts; });
   let capacityWatts = 0;
-  visitedInverters.forEach((inv) => { capacityWatts += INVERTER_CAPACITY_KW[Math.min(inv.tier, INVERTER_CAPACITY_KW.length - 1)] * 1000; });
+  visitedInverters.forEach((inv) => { capacityWatts += inverterCapacityKw(inv.tier) * 1000; });
   return { panels: visitedPanels, inverters: visitedInverters, watts, capacityWatts };
 }
 
@@ -3840,7 +3891,7 @@ function isAnchorElectrified(anchor) {
 
 function electrocutePlayer() {
   showDangerBanner('⚡ ELECTROCUTED!');
-  camera.position.set(0, effStandHeight(), 6);
+  camera.position.set(SPAWN_POS.x, effStandHeight(), SPAWN_POS.z);
   velocity.set(0, 0, 0);
   airLaunch.set(0, 0, 0);
   grounded = false;
@@ -4285,7 +4336,12 @@ const clock = new THREE.Clock();
 
 function updateHud() {
   let weaponLine;
-  if (currentWeapon === 1) {
+  if (currentWeapon === 1 && MAP_ID === 2) {
+    const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
+    weaponLine = `<b>1: Tree Cutter</b> — ${reloadMsg}<br>` +
+      `<span class="good">LMB</span> aim at a tree to clear it (drops timber scrap) &nbsp; <span class="good">R</span> reload<br>` +
+      `clear the trees shading the array so it isn't blocked`;
+  } else if (currentWeapon === 1) {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
     const areaMsg = unlockedAreaTool
       ? (areaDrag ? `<span class="good">dragging area…</span>` : `hold <span class="good">RMB</span>, look to far corner, release to build`)
@@ -4354,6 +4410,11 @@ function updateHud() {
   const stars = '★'.repeat(upgrades.goldStars);
   const nm = nextMilestone();
   const progressMsg = nm ? `next: ${totalConnected}/${nm.count} connected` : 'all milestones reached';
+  let map2Line = '';
+  if (MAP_ID === 2) {
+    const connectedKw = computeMap2ProgressKw();
+    map2Line = `<br>Array: <b>${connectedKw.toFixed(0)}/500kW</b> goal (array total <b>1000kW</b>) — wire inverters to the array with the Cable Gun`;
+  }
   let salvageLine = '';
   if (upgrades.salvageUnlocked) {
     salvageLine = `<br>Scrap carried: <b>${carriedCableScrap}</b> cable / <b>${carriedPanelScrap}</b> panel / <b>${carriedInverterScrap}</b> inverter / <b>${carriedRockScrap}</b> rock / <b>${carriedMetalScrap}</b> metal / <b>${carriedTimberScrap}</b> timber · Credits: <b>${credits}</b> — give it to the clerics at the Salvage Yard`;
@@ -4376,7 +4437,7 @@ function updateHud() {
   if (upgrades.gun0Unlocked) weaponKeys.push('0');
   hud.innerHTML = `${weaponLine}<br>` +
     `${crouching ? '<span class="bad">crouched</span>' : 'standing'} · ${grounded ? 'grounded' : 'airborne'} · <span class="key" style="font-size:11px;">${weaponKeys.join('/')}</span> switch weapon<br>` +
-    `Connected: <b>${totalConnected}</b> ${stars} — ${progressMsg}${salvageLine}`;
+    `Connected: <b>${totalConnected}</b> ${stars} — ${progressMsg}${salvageLine}${map2Line}`;
   const kw = (totalWattsInstalled / 1000).toFixed(2);
   panelCountEl.innerHTML =
     `Panels laid: <b>${totalPanelsPlaced}</b><br>` +
@@ -4407,6 +4468,7 @@ function animate() {
   updateFires(dt);
   updateMovingCars(dt);
   updateWanderers(dt);
+  if (MAP_ID === 2) checkMap2Goal();
   updateFireSpread(dt);
   if (flashTimer > 0) { flashTimer -= dt; if (flashTimer <= 0) muzzleFlash.intensity = 0; }
   if (reloading) {
@@ -4500,7 +4562,7 @@ function animate() {
   }
 
   if (camera.position.y < -20) {
-    camera.position.set(0, effStandHeight(), 6);
+    camera.position.set(SPAWN_POS.x, effStandHeight(), SPAWN_POS.z);
     velocity.set(0, 0, 0);
     airLaunch.set(0, 0, 0);
   }
@@ -4511,6 +4573,10 @@ function animate() {
       ghostMesh.visible = false;
       ghostInverterMesh.visible = false;
       updateAreaDragPreview();
+    } else if (currentWeapon === 1 && MAP_ID === 2) {
+      ghostMesh.visible = false;
+      ghostAreaMesh.visible = false;
+      ghostInverterMesh.visible = false;
     } else if (currentWeapon === 1) {
       ghostAreaMesh.visible = false;
       ghostInverterMesh.visible = false;
@@ -4560,6 +4626,161 @@ function animate() {
 
   renderer.render(scene, camera);
 }
+
+// ============================================================================
+// Map 2: Solar Farm — Open Range. A separate world built far from Map 1's city
+// (see MAP2_ORIGIN) — open ground, a lot of trees shading a fixed 1MW tilted
+// array, and a battery hardstand. Weapon 1 is replaced with a tree cutter (see
+// fire()/fireTreeCutter); gun 0 (batteries/switchboards) starts pre-unlocked.
+// The goal is wiring 500kW of player-placed inverters to the array.
+// ============================================================================
+const map2Trees = []; // { trunk, leaves, wallBox } — only populated when MAP_ID === 2
+const MAP2_ARRAY_TOTAL_W = 1000000;
+const MAP2_ARRAY_SECTIONS = 20; // 1MW / 20 = 50kW per anchor
+const MAP2_GOAL_KW = 500;
+let map2GoalReached = false;
+
+function buildCuttableTree(x, z) {
+  const scale = rand(0.9, 1.6);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18 * scale, 0.24 * scale, 2.2 * scale, 8), matWood);
+  trunk.position.set(x, 1.1 * scale, z);
+  trunk.castShadow = true;
+  scene.add(trunk);
+  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.3 * scale, 2.6 * scale, 8), matLeaf);
+  leaves.position.set(x, 2.6 * scale, z);
+  leaves.castShadow = true;
+  scene.add(leaves);
+  const r = 0.2 * scale;
+  const wallBox = addWallBox(x - r, x + r, z - r, z + r, 0, 2.2 * scale);
+  map2Trees.push({ trunk, leaves, wallBox });
+}
+
+function fireTreeCutter() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(map2Trees.map((t) => t.trunk), false);
+  if (!hits.length || hits[0].distance > MAX_PLACE_DIST) return;
+  const idx = map2Trees.findIndex((t) => t.trunk === hits[0].object);
+  if (idx < 0) return;
+  const tree = map2Trees[idx];
+  scene.remove(tree.trunk);
+  scene.remove(tree.leaves);
+  const wi = wallColliders.indexOf(tree.wallBox);
+  if (wi >= 0) wallColliders.splice(wi, 1);
+  map2Trees.splice(idx, 1);
+  showToast('TREE CLEARED');
+}
+
+// sum of inverterCapacityKw for every powered-on inverter actually reaching some of
+// the array's wattage — the whole point of this map is wiring inverters INTO the
+// array, so "connected" specifically means collectInverterNetwork sees array watts
+function computeMap2ProgressKw() {
+  let kw = 0;
+  inverters.forEach((inv) => {
+    if (!inv.poweredOn) return;
+    if (collectInverterNetwork(inv).watts > 0) kw += inverterCapacityKw(inv.tier);
+  });
+  return kw;
+}
+
+function checkMap2Goal() {
+  if (map2GoalReached) return;
+  if (computeMap2ProgressKw() >= MAP2_GOAL_KW) {
+    map2GoalReached = true;
+    showMilestoneBanner('☀', `${MAP2_GOAL_KW}kW GOAL REACHED — ARRAY SUBSTANTIALLY ONLINE!`);
+  }
+}
+
+function buildSolarFarmMap() {
+  upgrades.gun0Unlocked = true;
+  upgrades.switchboardUnlocked = true;
+
+  const ox = MAP2_ORIGIN.x, oz = MAP2_ORIGIN.z;
+  const matGrass = new THREE.MeshStandardMaterial({ color: 0x4a6a3a, roughness: 1.0 });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), matGrass);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(ox, 0, oz);
+  ground.receiveShadow = true;
+  ground.userData.isSurface = true;
+  scene.add(ground);
+  groundColliders.push(ground);
+  placementSurfaces.push(ground);
+
+  // ---- the fixed 1MW tilted array: 4 rows x 5 columns of large angled sections,
+  // each a real `panels[]` entry (groupId: null, so each needs its own separate
+  // cable to an inverter — no touching-group shortcut to the whole 1MW at once)
+  const arrayCx = ox, arrayCz = oz - 40;
+  const cols = 5, rows = 4;
+  const spacingX = 9, spacingZ = 7;
+  const sectionW = 8, sectionH = 5.5;
+  const tiltMat = new THREE.MeshStandardMaterial({ color: 0x1a3a5a, roughness: 0.35, metalness: 0.4 });
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.6, metalness: 0.5 });
+  const wattsPerSection = MAP2_ARRAY_TOTAL_W / MAP2_ARRAY_SECTIONS;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const sx = arrayCx + (c - (cols - 1) / 2) * (sectionW + spacingX);
+      const sz = arrayCz + (r - (rows - 1) / 2) * spacingZ;
+      const group = new THREE.Group();
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.3, 2.2, 0.3), frameMat);
+      post.position.set(0, 1.1, 0);
+      const panelMesh = new THREE.Mesh(new THREE.BoxGeometry(sectionW, 0.15, sectionH), tiltMat);
+      panelMesh.position.set(0, 2.2, 0);
+      panelMesh.rotation.x = -0.35; // tilted toward the sun
+      panelMesh.castShadow = true;
+      panelMesh.receiveShadow = true;
+      group.add(post, panelMesh);
+      group.position.set(sx, 0, sz);
+      scene.add(group);
+      worldMeshes.push(panelMesh);
+      const anchorPos = new THREE.Vector3(sx, 2.2, sz + sectionH * 0.4);
+      const panelEntry = { mesh: group, pos: anchorPos, normal: new THREE.Vector3(0, 1, 0), groupId: null, size: PANEL_SIZE, watts: wattsPerSection };
+      panels.push(panelEntry);
+    }
+  }
+  const arraySign = makeTextSprite(`SOLAR ARRAY — 1000kW`, { fontSize: 44, color: '#ffd54a', border: '#ff9a4d', scale: 0.6 });
+  arraySign.position.set(arrayCx, 6.5, arrayCz);
+  scene.add(arraySign);
+
+  // ---- battery hardstand: a big paved pad with oversized battery-bank stacks.
+  // Purely decorative for now — there's no cable to wire switchboards to it yet;
+  // that's an intentionally deferred unlock, not an oversight (see NOTES.md).
+  const hardstandCx = ox, hardstandCz = oz + 55;
+  const hsMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.9 });
+  const hardstand = new THREE.Mesh(new THREE.BoxGeometry(50, 0.08, 30), hsMat);
+  hardstand.position.set(hardstandCx, 0.04, hardstandCz);
+  hardstand.receiveShadow = true;
+  hardstand.userData.isSurface = true;
+  scene.add(hardstand);
+  groundColliders.push(hardstand);
+  const bankMat = new THREE.MeshStandardMaterial({ color: 0x2f6a3a, roughness: 0.5, metalness: 0.3 });
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 3; j++) {
+      const bx = hardstandCx - 20 + i * 8;
+      const bz = hardstandCz - 8 + j * 8;
+      const bank = new THREE.Mesh(new THREE.BoxGeometry(3.5, 2.2, 1.6), bankMat);
+      bank.position.set(bx, 1.1, bz);
+      bank.castShadow = true;
+      bank.receiveShadow = true;
+      bank.userData.isSurface = true;
+      scene.add(bank);
+      groundColliders.push(bank);
+      addWallBox(bx - 1.75, bx + 1.75, bz - 0.8, bz + 0.8, 0, 2.2);
+    }
+  }
+  const hsSign = makeTextSprite('BATTERY HARDSTAND', { fontSize: 40, color: '#8affc9', border: '#4dffa0', scale: 0.55 });
+  hsSign.position.set(hardstandCx, 5, hardstandCz - 16);
+  scene.add(hsSign);
+
+  // ---- lots of trees scattered around, shading the array in places — clear a path
+  // through the middle so it's not blocked from the start
+  for (let i = 0; i < 130; i++) {
+    const tx = ox + rand(-180, 180), tz = oz + rand(-180, 180);
+    if (Math.abs(tx - arrayCx) < 35 && Math.abs(tz - arrayCz) < 25) continue; // keep the array clear
+    if (Math.abs(tx - hardstandCx) < 30 && Math.abs(tz - hardstandCz) < 20) continue; // keep the hardstand clear
+    if (Math.hypot(tx - ox, tz - (oz + 6)) < 8) continue; // keep spawn clear
+    buildCuttableTree(tx, tz);
+  }
+}
+if (MAP_ID === 2) buildSolarFarmMap();
 
 animate();
 
@@ -4636,4 +4857,6 @@ window.__debug = {
   toggleMap, drawMap, mapOpen: () => mapOpen, mapZoom: () => mapZoom,
   setMapZoom: (v) => { mapZoom = v; }, mapCanvas,
   movingCars, updateMovingCars, wanderers, updateWanderers, pointOnLoop, LOOP_R, LOOP_PERIM,
+  MAP_ID, MAP2_ORIGIN, map2Trees, fireTreeCutter, computeMap2ProgressKw, checkMap2Goal,
+  map2GoalReached: () => map2GoalReached, inverterCapacityKw, MAP2_INVERTER_CAPACITY_KW,
 };

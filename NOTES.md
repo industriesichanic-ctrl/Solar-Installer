@@ -4,6 +4,73 @@ Working notes on how the current systems fit together, for picking this project
 back up in a fresh chat. The code (`main.js` + `index.html`) is the source of
 truth — this is a map of *why* things work the way they do, not a spec.
 
+## Maps
+
+The start screen's `#mapPanel` (left column, `index.html`) lists 10 map
+slots; only 1 and 2 are wired up, 3-10 are `.locked` placeholders. Picking a
+map is a **full page reload** with `?map=N` in the URL — `MAP_ID` (read once
+at the very top of `main.js` via `URLSearchParams`) then gates the
+map-specific branches sprinkled through the rest of the file. This was a
+deliberate simplification over building a real "tear down and rebuild the
+scene" system: the existing Map 1 world-build is a large amount of working
+top-level code with no init/teardown boundaries, and safely wrapping all of
+it in a live map switch would have been a much bigger, riskier job than a
+reload. The trade-off: **Map 1's entire city still gets built even when
+playing Map 2** (nothing skips it) — Map 2's world just lives at a huge
+coordinate offset (`MAP2_ORIGIN = {x: 3000, z: 0}`, camera far-plane is 400,
+so it's not even in view distance of Map 1) and the player spawns there
+instead. This costs some memory/CPU building a city nobody will visit in
+Map 2 mode; fine at the current scale, but if a 3rd real map gets added, it's
+probably worth revisiting with an actual init/teardown split.
+
+### Map 2 — Solar Farm (Open Range)
+
+Built by `buildSolarFarmMap()`, called once at the very end of the file
+(right before `animate()` — by then every shared array/material/function it
+reuses is guaranteed to have already run, sidestepping any `const` temporal-
+dead-zone ordering concerns with reusing Map-1 systems from a spot much
+earlier in load order). Open grass plane, ~130 trees scattered around
+(skipping the array/hardstand/spawn footprints), a fixed **1MW tilted solar
+array**, and a decorative battery hardstand.
+
+- **Loadout differences**: `upgrades.gun0Unlocked` and
+  `upgrades.switchboardUnlocked` start `true` — no 20-power-system or
+  100kWh-of-batteries grind here, gun 0 is just available. Weapon 1 (LMB) is
+  entirely replaced: `fire()` branches on `MAP_ID === 2` right at the top and
+  calls `fireTreeCutter()` instead of placing a panel — same ammo/reload
+  economy as the normal panel gun, just a different action. `map2Trees`
+  tracks each tree's meshes/collider so a hit chunk can be fully removed
+  (RMB/area-tool/ghost-preview for weapon 1 are all separately guarded off
+  for `MAP_ID === 2`, since none of that applies and the RMB "pick up
+  nearest panel" action in particular would otherwise let the player yank
+  the fixed array anchors back out of the world).
+- **The array**: `MAP2_ARRAY_SECTIONS` (20) tilted sections, each a real
+  entry pushed directly into the shared `panels[]` array (bypassing
+  `placePanel` — these are fixed infrastructure, not something the player
+  placed) with `watts: 50000` (1,000,000 / 20) and `groupId: null` so each
+  section needs its **own separate cable** to an inverter — there's no
+  touching-group shortcut that would let one cable reach all 1MW at once.
+  The Cable Gun's existing anchor system (`findNearestAnchor` et al., type
+  `'panel'`) works on these anchors completely unmodified.
+- **Inverter tiers are different on this map**: `MAP2_INVERTER_CAPACITY_KW =
+  [25, 50, 100, 250]` vs Map 1's `[3, 10, 20, 50]`. Every place that used to
+  index `INVERTER_CAPACITY_KW` directly now goes through
+  `inverterCapacityKw(tier)`, which picks the table based on `MAP_ID` — this
+  is the one piece of Map-1 machinery that had to change to support Map 2,
+  since inverter tiers are otherwise global, not per-map state.
+- **Goal**: `computeMap2ProgressKw()` sums `inverterCapacityKw(tier)` for
+  every powered-on inverter whose `collectInverterNetwork(...).watts > 0`
+  (i.e. actually reaching some of the array, not just any powered inverter
+  anywhere) — checked every frame by `checkMap2Goal()`, which pops a
+  milestone banner once it crosses `MAP2_GOAL_KW` (500) and then stops
+  checking (`map2GoalReached`). Shown live in the HUD as "Array: X/500kW".
+- **Battery hardstand is intentionally inert** — visual only (oversized
+  battery-bank meshes, not real `batteries[]` entries), no switchboard
+  wiring to it yet. This isn't a bug or an oversight: how the player is
+  meant to unlock a cable able to reach it hasn't been decided yet — the
+  user's own words were "will figure out an unlock for that." Don't invent
+  one; ask first.
+
 ## Deployment
 
 This repo is a plain static site (`index.html` + `main.js`, Three.js loaded
