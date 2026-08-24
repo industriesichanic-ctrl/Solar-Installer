@@ -138,11 +138,65 @@ Four bugs reported after the v14 rebuild, all in the plumbing toolset:
   in the `mousedown`/`mouseup` listeners now branches on `currentJob` before
   choosing which area tool (or pick-up) to run.
 
-Not yet done: the newest loadout re-spec (`1: HP, 2: Pipe, 3: Switch, 4: AC
-Cable/TPS, 5: MSWB`, plus a full power-on sequence gating the heat pump on
-HP→main→tap wiring *and* a switch→MSWB→breaker→heat-pump-switch chain) is a
-bigger rework than the four bug fixes above and hasn't been started —
-current code still has Power Switch on slot 4 with no MSWB/breaker chain.
+### Loadout rework v16 — Switch/MSWB/AC Cable, water taps, activation chain
+
+Implemented the full re-spec: `1: HP, 2: Pipe, 3: Switch, 4: AC Cable
+(white TPS), 5: MSWB`. Two parallel systems now share the heat pump as a
+common anchor, disambiguated purely by anchor *type* at cable-render time
+(`rebuildCableMesh`'s `electricalTypes = ['switch','mswb']` checked before
+`plumbingTypes = ['tap','heatpump','watermain']`, since a cable's two ends
+are never a mix of both):
+- **Water** (Pipe gun, slot 2): `cableClick`/`cableRightClick` unchanged —
+  LMB wires heatpump↔watermain/tap (copper pipe render); with no run
+  active, RMB now drops a **Water Tap** (`fireTap`/`placeTap`, same
+  proximity-to-heat-pump mechanic the old mislabeled "Power Switch" used,
+  just renamed to what it actually always was). Capped at
+  `MAX_TAPS_PER_HEATPUMP` (10) via a simple distance-bucket count in
+  `fireTap` — the 11th attempt near the same heat pump just toasts instead
+  of placing.
+- **Electrical** (Switch slot 3 + AC Cable slot 4 + MSWB slot 5): `Switch`
+  (`fireSwitch`/`placeSwitch`, same 1m-of-heat-pump gating as taps) wires to
+  an `MSWB` (`fireMswb`/`placeMswb`, placed anywhere like an inverter) via
+  the **same generic** `cableClick`/`cableRightClick` on slot 4, rendered
+  white (`matAcCable`) because the anchor types are `switch`/`mswb`.
+- **Activation order matters**: `toggleSwitchUnderCrosshair` (E on a
+  switch) only turns it on if `isSwitchMswbPowered` (BFS across `cables` to
+  a `mswb` with `breakerOn`) **and** `isHeatPumpPlumbed` (BFS from the
+  nearby heat pump to a `watermain`, or a `tap` that's `.flowing`) are both
+  true. Flip it early — MSWB on, but plumbing not done — and
+  `spawnWaterBurst` fires: 16 tumbling blue boxes (`matWaterBlock`, 3
+  shades) with simple gravity, no physics engine, removed after 1.4s,
+  ticked by `updateWaterBursts(dt)` in the main loop. Succeed and it's the
+  actual "prize" — `showMilestoneBanner('🎉','HEAT PUMP SYSTEM ONLINE!')`.
+  MSWB's own breaker toggle (E on it) just needs *something* wired, no
+  burst risk there — it's upstream of water entirely.
+- `handleInteractKey`'s plumber branch now chains
+  `toggleTapUnderCrosshair → toggleSwitchUnderCrosshair →
+  toggleMswbUnderCrosshair`, falling back to a plumbing-only toast — still
+  never touches `toggleInverterSwitch()`.
+- `setWeapon`'s slot 5 is job-conditional the same way slots 1-4 already
+  were: `mswbGunGroup` for Plumber, `waterGunGroup` (unchanged) for
+  Solar/no-job — the `Digit5` handler had to be updated too, since it
+  previously hard-gated slot 5 behind `upgrades.waterGunUnlocked`, which is
+  a Solar-only unlock a plumber would never trip.
+
+Verified via `window.__debug` (a minimal hand-rolled Vector3-alike, since
+the module's real `THREE` isn't on `window`): placed a heat pump, switch,
+and MSWB directly; confirmed the tank mesh's `rotation.x === 0` (upright);
+confirmed `isSwitchMswbPowered`/`isHeatPumpPlumbed` both correctly flip
+from `false` to `true` only after pushing the matching fake cable objects;
+confirmed `spawnWaterBurst` runs with no console errors. Not yet
+live-tested with actual mouse/pointer-lock input in a real play session —
+that's the next thing to do before calling this fully done.
+
+### Explicitly deferred (asked for, not yet built)
+
+- Panels placed on the road getting cracked/shattered by passing traffic
+  (white line "glass" cracks).
+- The old rooftop staircase that ran all the way to the top of a building
+  with a jump-gap near the top — replaced earlier this session by the
+  floor-by-floor pancake collapse system; bringing it back means it'd need
+  to coexist with that collapse logic rather than just reverting it.
 
 ## Mobile / touch controls
 

@@ -192,6 +192,8 @@ const matInverterVent = new THREE.MeshStandardMaterial({ color: 0x1c1e21, roughn
 const matSpark     = new THREE.MeshBasicMaterial({ color: 0x9fe8ff });
 const matFlexOrange = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.55, metalness: 0.15 });
 const matPipeCopper = new THREE.MeshStandardMaterial({ color: 0xb87333, roughness: 0.4, metalness: 0.7 });
+const matAcCable = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.5, metalness: 0.05 }); // white TPS electrical cable
+const matWaterBlock = [0x2a6bd6, 0x4a90e2, 0x7ec8ff].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.4, metalness: 0.1 }));
 
 // ---------- Ground ----------
 const GROUND_SIZE = 280;
@@ -1533,6 +1535,23 @@ pipeGunGroup.position.set(0.22, -0.2, -0.4);
 pipeGunGroup.visible = false;
 camera.add(pipeGunGroup);
 
+// ---------- AC Cable gun view model (plumber slot 4 — white TPS electrical cable) ----------
+const acCableGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.3), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const spool = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.1, 12), matAcCable);
+  spool.rotation.z = Math.PI / 2;
+  spool.position.set(0, 0.02, 0.06);
+  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.18, 8), matToolBody);
+  nozzle.rotation.x = Math.PI / 2;
+  nozzle.position.set(0, 0, -0.32);
+  acCableGunGroup.add(body, spool, nozzle);
+}
+acCableGunGroup.position.set(0.22, -0.2, -0.4);
+acCableGunGroup.visible = false;
+camera.add(acCableGunGroup);
+
 const pipeRouterGroup = new THREE.Group();
 {
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.22), matToolBody);
@@ -1566,6 +1585,24 @@ const switchGunGroup = new THREE.Group();
 switchGunGroup.position.set(0.22, -0.2, -0.4);
 switchGunGroup.visible = false;
 camera.add(switchGunGroup);
+
+// ---------- MSWB gun view model (plumber slot 5 — Main Switchboard) ----------
+const mswbGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.3), matToolBody);
+  body.position.set(0, 0, -0.12);
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.18, 0.04), new THREE.MeshStandardMaterial({ color: 0x24272b, roughness: 0.35, metalness: 0.7 }));
+  panel.position.set(0, 0.08, -0.02);
+  const indicator = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.01), new THREE.MeshStandardMaterial({ color: 0xff5050, emissive: 0x5a1010, emissiveIntensity: 1.1 }));
+  indicator.position.set(0, 0.1, 0.005);
+  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.18, 8), matToolBody);
+  muzzle.rotation.x = Math.PI / 2;
+  muzzle.position.set(0, 0, -0.32);
+  mswbGunGroup.add(body, panel, indicator, muzzle);
+}
+mswbGunGroup.position.set(0.22, -0.2, -0.4);
+mswbGunGroup.visible = false;
+camera.add(mswbGunGroup);
 
 // ---------- Placement ghost preview ----------
 const ghostGeo = new THREE.BoxGeometry(PANEL_SIZE, PANEL_THICK, PANEL_SIZE);
@@ -1619,10 +1656,12 @@ function setWeapon(w) {
   inverterGunGroup.visible = solarJob && w === 4;
   hpGunGroup.visible = plumberJob && w === 1;
   pipeGunGroup.visible = plumberJob && w === 2;
-  pipeRouterGroup.visible = plumberJob && w === 3;
-  switchGunGroup.visible = plumberJob && w === 4;
-  // slots 5+ are universal utility tools, not tied to a job identity
-  waterGunGroup.visible = w === 5;
+  switchGunGroup.visible = plumberJob && w === 3;
+  acCableGunGroup.visible = plumberJob && w === 4;
+  mswbGunGroup.visible = plumberJob && w === 5;
+  pipeRouterGroup.visible = false; // no longer part of any loadout — kept only so old refs don't break
+  // slots 5+ are universal utility tools for Solar/no-job; Plumber's slot 5 is the MSWB gun instead
+  waterGunGroup.visible = w === 5 && !plumberJob;
   repairGunGroup.visible = w === 6;
   bulkInverterGunGroup.visible = w === 7;
   demoToolGroup.visible = w === 8;
@@ -1690,7 +1729,9 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit3') setWeapon(3);
   if (e.code === 'Digit4') setWeapon(4);
   if (e.code === 'Digit5') {
-    if (upgrades.waterGunUnlocked) setWeapon(5);
+    // Plumber's slot 5 is the MSWB gun — core loadout, not gated behind the
+    // Water Gun's salvage unlock (that unlock only applies to Solar/no-job)
+    if (currentJob === 'plumber' || upgrades.waterGunUnlocked) setWeapon(5);
     else showToast(`WATER GUN LOCKED — GIVE ${SCRAP_UNLOCK_CABLE} CABLE + ${SCRAP_UNLOCK_PANEL} PANEL SCRAP TO THE SALVAGE CLERIC`);
   }
   if (e.code === 'Digit6') {
@@ -1763,19 +1804,33 @@ document.addEventListener('mousedown', (e) => {
     }
   } else if (currentWeapon === 2) {
     if (e.button === 0) cableClick();
-    if (e.button === 2) cableRightClick();
+    // Pipe gun's RMB finishes/cancels an in-progress run same as always — but with no
+    // run active, plumbers use it to drop a water tap near the nearest heat pump instead
+    if (e.button === 2) {
+      if (cableActive || currentJob !== 'plumber') cableRightClick();
+      else fireTap();
+    }
   } else if (currentWeapon === 3) {
-    if (e.button === 0) routerLeftDown();
-    if (e.button === 2) routerRightClick();
+    if (currentJob === 'plumber') {
+      if (e.button === 0) fireSwitch();
+    } else {
+      if (e.button === 0) routerLeftDown();
+      if (e.button === 2) routerRightClick();
+    }
   } else if (currentWeapon === 4) {
     if (currentJob === 'plumber') {
-      if (e.button === 0) fireTap();
+      if (e.button === 0) cableClick();
+      if (e.button === 2) cableRightClick();
     } else {
       if (e.button === 0) fireInverter();
       if (e.button === 2) handleInverterRightClick();
     }
   } else if (currentWeapon === 5) {
-    if (e.button === 0) mouseDown = true; // hold to spray
+    if (currentJob === 'plumber') {
+      if (e.button === 0) fireMswb();
+    } else {
+      if (e.button === 0) mouseDown = true; // hold to spray
+    }
   } else if (currentWeapon === 6) {
     if (e.button === 0) firePanelRepair();
   } else if (currentWeapon === 7) {
@@ -2799,10 +2854,13 @@ function handleInteractKey() {
       return;
     }
   }
-  // job-gated fallback language — plumbers only ever hear power-switch lingo,
+  // job-gated fallback language — plumbers only ever hear tap/switch/MSWB lingo,
   // solar installers only ever hear inverter lingo, never mixed
   if (currentJob === 'plumber') {
-    if (!toggleTapUnderCrosshair()) showToast('AIM AT A POWER SWITCH TO TOGGLE IT');
+    if (toggleTapUnderCrosshair()) return;
+    if (toggleSwitchUnderCrosshair()) return;
+    if (toggleMswbUnderCrosshair()) return;
+    showToast('AIM AT A TAP, SWITCH, OR MSWB TO TOGGLE IT');
     return;
   }
   toggleInverterSwitch();
@@ -3327,11 +3385,21 @@ function buildRoutedLegs(rawPoints) {
   return legs;
 }
 
-function buildCableSegment(pt0, n0, pt1, n1, group, rawSegIndex, heavy, pipe) {
+function buildCableSegment(pt0, n0, pt1, n1, group, rawSegIndex, heavy, pipe, acCable) {
   const p0 = pt0.clone().addScaledVector(n0, CABLE_FLUSH);
   const p1 = pt1.clone().addScaledVector(n1, CABLE_FLUSH);
   const dir = new THREE.Vector3().subVectors(p1, p0);
   if (dir.length() < 0.02) return;
+
+  if (acCable) {
+    // electrical run: one solid white TPS cable, not dual red/black strands
+    const s = new THREE.Mesh(flexUnitGeo, matAcCable);
+    alignCylinderBetween(s, p0, p1);
+    s.castShadow = true;
+    s.userData.rawSegIndex = rawSegIndex;
+    group.add(s);
+    return;
+  }
 
   if (pipe) {
     // plumbing run: one solid copper-colored pipe, not dual electrical strands
@@ -3375,11 +3443,14 @@ function rebuildCableMesh(cableObj) {
   const group = new THREE.Group();
   const heavy = !!(cableObj.startAnchor && cableObj.endAnchor
     && cableObj.startAnchor.type === 'inverter' && cableObj.endAnchor.type === 'inverter');
+  const electricalTypes = ['switch', 'mswb'];
+  const acCable = !!((cableObj.startAnchor && electricalTypes.includes(cableObj.startAnchor.type))
+    || (cableObj.endAnchor && electricalTypes.includes(cableObj.endAnchor.type)));
   const plumbingTypes = ['tap', 'heatpump', 'watermain'];
-  const pipe = !!((cableObj.startAnchor && plumbingTypes.includes(cableObj.startAnchor.type))
+  const pipe = !acCable && !!((cableObj.startAnchor && plumbingTypes.includes(cableObj.startAnchor.type))
     || (cableObj.endAnchor && plumbingTypes.includes(cableObj.endAnchor.type)));
   const legs = buildRoutedLegs(cableObj.rawPoints);
-  legs.forEach((leg) => buildCableSegment(leg.a.point, leg.a.normal, leg.b.point, leg.b.normal, group, leg.rawSegIndex, heavy, pipe));
+  legs.forEach((leg) => buildCableSegment(leg.a.point, leg.a.normal, leg.b.point, leg.b.normal, group, leg.rawSegIndex, heavy, pipe, acCable));
   group.userData.cableRef = cableObj;
   scene.add(group);
   cableObj.mesh = group;
@@ -3428,6 +3499,14 @@ function findNearestAnchor(point, maxDist) {
     const d = w.pos.distanceTo(point);
     if (d < bestDist) { bestDist = d; best = w; bestType = 'watermain'; }
   }
+  for (const s of elecSwitches) {
+    const d = s.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = s; bestType = 'switch'; }
+  }
+  for (const m of mswbs) {
+    const d = m.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = m; bestType = 'mswb'; }
+  }
   return best ? { obj: best, type: bestType } : null;
 }
 
@@ -3435,6 +3514,8 @@ function anchorThickness(anchor) {
   if (anchor.type === 'panel') return PANEL_THICK;
   if (anchor.type === 'heatpump') return 0.32;
   if (anchor.type === 'tap' || anchor.type === 'watermain') return 0.15;
+  if (anchor.type === 'switch') return 0.1;
+  if (anchor.type === 'mswb') return 0.15;
   if (anchor.type === 'battery') return BATTERY_THICK;
   if (anchor.type === 'switchboard') return SWITCHBOARD_THICK;
   return INVERTER_THICK;
@@ -4199,6 +4280,8 @@ function isAnchorElectrified(anchor) {
   if (anchor.type === 'switchboard') return anchor.obj.energized;
   if (anchor.type === 'battery') return false; // batteries don't carry mains current in this model
   if (anchor.type === 'tap' || anchor.type === 'heatpump' || anchor.type === 'watermain') return false; // plumbing, not electrical
+  if (anchor.type === 'switch') return anchor.obj.on;
+  if (anchor.type === 'mswb') return anchor.obj.breakerOn;
   return isPanelElectrified(anchor.obj);
 }
 
@@ -4664,7 +4747,7 @@ function updateHud() {
     weaponLine = `<b>1: HP Gun</b> (Heat Pump) — ${reloadMsg}<br>` +
       `<span class="good">LMB</span> fire (snaps to grid, stacks side by side) &nbsp; <span class="good">RMB</span> pick up &nbsp; <span class="good">R</span> reload<br>` +
       `${hpAreaMsg}<br>` +
-      `Pipe Gun (2) runs pipes to a water main &nbsp; Power Switch (4) mounts within 1m of a heat pump &nbsp; <span class="key" style="font-size:11px;">E</span> toggle a switch`;
+      `Pipe (2) RMB places a water tap &nbsp; Switch (3) mounts within 1m &nbsp; AC Cable (4) &nbsp; MSWB (5) &nbsp; <span class="key" style="font-size:11px;">E</span> toggle a tap/switch/MSWB`;
   } else if (currentWeapon === 1) {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
     const areaMsg = unlockedAreaTool
@@ -4686,8 +4769,8 @@ function updateHud() {
       ? `<span class="good">routing…</span> ${cableActive.points.length} point(s)`
       : 'ready';
     weaponLine = `<b>2: Pipe Gun</b> — ${cableMsg}<br>` +
-      `<span class="good">LMB</span> start/extend/finish on a heat pump, power switch, or water main &nbsp; <span class="good">RMB</span> finish run / remove pipe<br>` +
-      `runs render as a single copper pipe`;
+      `<span class="good">LMB</span> start/extend/finish on a heat pump or water main &nbsp; <span class="good">RMB</span> finish run / no run active: drop a water tap<br>` +
+      `taps cap at ${MAX_TAPS_PER_HEATPUMP} per heat pump — runs render as a single copper pipe`;
   } else if (currentWeapon === 2) {
     const cableMsg = cableActive
       ? `<span class="good">routing…</span> ${cableActive.points.length} point(s)`
@@ -4701,20 +4784,30 @@ function updateHud() {
     const grabMsg = routerGrab ? `<span class="good">bending…</span> release to set` : 'ready';
     weaponLine = `<b>3: Pipe Router</b> — ${grabMsg}<br>` +
       `<span class="good">LMB</span> hold on a pipe, look to a new point, release to bend it there &nbsp; <span class="good">RMB</span> straighten a bend`;
+  } else if (currentWeapon === 3 && currentJob === 'plumber') {
+    weaponLine = `<b>3: Switch</b><br>` +
+      `<span class="good">LMB</span> fire to mount a switch — must be within ${POWER_SWITCH_RANGE}m of a heat pump &nbsp; <span class="key" style="font-size:11px;">E</span> aim at it to flip it on/off<br>` +
+      `it only turns on once its MSWB's breaker is on <b>and</b> its heat pump is already plumbed — flipping it too early blows the pipes`;
   } else if (currentWeapon === 3) {
     const grabMsg = routerGrab ? `<span class="good">bending…</span> release to set` : 'ready';
     const salvageMsg = upgrades.salvageUnlocked ? ` &nbsp; no cable aimed? <span class="good">RMB</span> salvages a panel` : '';
     weaponLine = `<b>3: Cable Router</b> — ${grabMsg}<br>` +
       `<span class="good">LMB</span> hold on a cable, look to a new point, release to bend it there &nbsp; <span class="good">RMB</span> straighten a bend${salvageMsg}`;
   } else if (currentWeapon === 4 && currentJob === 'plumber') {
-    weaponLine = `<b>4: Power Switch</b><br>` +
-      `<span class="good">LMB</span> fire to mount a switch — must be within ${POWER_SWITCH_RANGE}m of a heat pump &nbsp; <span class="key" style="font-size:11px;">E</span> aim at a switch to toggle it<br>` +
-      `a switch only flows once its pipe network reaches both a heat pump and a water main`;
+    const cableMsg = cableActive
+      ? `<span class="good">routing…</span> ${cableActive.points.length} point(s)`
+      : 'ready';
+    weaponLine = `<b>4: AC Cable</b> (white TPS) — ${cableMsg}<br>` +
+      `<span class="good">LMB</span> start/extend/finish on a switch or MSWB &nbsp; <span class="good">RMB</span> finish run / remove cable`;
   } else if (currentWeapon === 4) {
     const selMsg = selectedInverters.size ? ` — <span class="good">${selectedInverters.size}/3 selected</span>` : '';
     weaponLine = `<b>4: Inverter Gun</b>${selMsg}<br>` +
       `<span class="good">LMB</span> fire onto a wall (snaps to grid) &nbsp; <span class="good">RMB</span> tier-0: pick up · big units: select 3 same-tier to combine<br>` +
       `3 adjacent tier-0 units auto-combine &nbsp; <span class="key" style="font-size:11px;">E</span> switch a wired inverter — <span class="bad">exceed its kW rating and it catches fire</span>`;
+  } else if (currentWeapon === 5 && currentJob === 'plumber') {
+    weaponLine = `<b>5: MSWB</b> (Main Switchboard) — ${mswbs.length} placed<br>` +
+      `<span class="good">LMB</span> fire onto a wall to place it &nbsp; <span class="key" style="font-size:11px;">E</span> aim at it to flip the breaker<br>` +
+      `nothing downstream turns on safely until the breaker's on`;
   } else if (currentWeapon === 5) {
     const powderMsg = upgrades.powderUnlocked
       ? `<br>&nbsp; <span class="key" style="font-size:11px;">RMB</span> hold while spraying: <b>powder</b> — safes live gear without electrocuting you`
@@ -4797,9 +4890,12 @@ function animate() {
   if (batteryFireCooldown > 0) batteryFireCooldown -= dt;
   if (switchboardFireCooldown > 0) switchboardFireCooldown -= dt;
   if (tapFireCooldown > 0) tapFireCooldown -= dt;
+  if (switchFireCooldown > 0) switchFireCooldown -= dt;
+  if (mswbFireCooldown > 0) mswbFireCooldown -= dt;
   if (bulkInverterCooldown > 0) bulkInverterCooldown -= dt;
   if (repairCooldown > 0) repairCooldown -= dt;
   if (demoToolCooldown > 0) demoToolCooldown -= dt;
+  updateWaterBursts(dt);
   updateDemoDrag(dt);
   updateElectricalSparks(dt);
   updateInverterProduction(dt);
@@ -4957,6 +5053,19 @@ function animate() {
       ghostAreaMesh.visible = false;
       ghostInverterMesh.visible = false;
       updateCablePreview();
+    } else if (currentWeapon === 3 && currentJob === 'plumber') {
+      ghostMesh.visible = false;
+      ghostAreaMesh.visible = false;
+      const target = getSwitchPlacementTarget();
+      if (target) {
+        ghostInverterMesh.visible = true;
+        ghostInverterMesh.material = isSwitchSpotFree(target.point) ? matGhostGood : matGhostBad;
+        const up = new THREE.Vector3(0, 1, 0);
+        ghostInverterMesh.quaternion.setFromUnitVectors(up, target.normal);
+        ghostInverterMesh.position.copy(target.point).addScaledVector(target.normal, 0.1);
+      } else {
+        ghostInverterMesh.visible = false;
+      }
     } else if (currentWeapon === 3) {
       ghostMesh.visible = false;
       ghostAreaMesh.visible = false;
@@ -4965,13 +5074,18 @@ function animate() {
     } else if (currentWeapon === 4 && currentJob === 'plumber') {
       ghostMesh.visible = false;
       ghostAreaMesh.visible = false;
-      const target = getPowerSwitchPlacementTarget();
+      ghostInverterMesh.visible = false;
+      updateCablePreview();
+    } else if (currentWeapon === 5 && currentJob === 'plumber') {
+      ghostMesh.visible = false;
+      ghostAreaMesh.visible = false;
+      const target = getMswbPlacementTarget();
       if (target) {
         ghostInverterMesh.visible = true;
-        ghostInverterMesh.material = isTapSpotFree(target.point) ? matGhostGood : matGhostBad;
+        ghostInverterMesh.material = isMswbSpotFree(target.point) ? matGhostGood : matGhostBad;
         const up = new THREE.Vector3(0, 1, 0);
         ghostInverterMesh.quaternion.setFromUnitVectors(up, target.normal);
-        ghostInverterMesh.position.copy(target.point).addScaledVector(target.normal, 0.1);
+        ghostInverterMesh.position.copy(target.point).addScaledVector(target.normal, 0.08);
       } else {
         ghostInverterMesh.visible = false;
       }
@@ -5372,9 +5486,14 @@ function pickUpNearestHeatPump() {
   ammo = Math.min(Math.max(effMagSize(), ammo), ammo + 1);
 }
 
-const taps = []; // "power switches" — internal name kept for the anchor-graph plumbing below
+// ---------- Water Tap (Pipe gun RMB) — placed within range of a heat pump, wired to
+// the water main (or another tap) to flow; more taps means more prize banners, but a
+// heat pump only supports MAX_TAPS_PER_HEATPUMP of them before "the main can't keep up"
+const taps = [];
 const POWER_SWITCH_RANGE = 1.0; // must be placed within this many meters of a heat pump
+const MAX_TAPS_PER_HEATPUMP = 10;
 const matTapBody = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.4, metalness: 0.6 });
+const matSwitchBody = new THREE.MeshStandardMaterial({ color: 0x394049, roughness: 0.4, metalness: 0.6 });
 function getPowerSwitchPlacementTarget() {
   const hit = findInverterPlacementHit();
   if (!hit) return null;
@@ -5384,7 +5503,7 @@ function getPowerSwitchPlacementTarget() {
     if (d < nearestDist) { nearestDist = d; nearestHp = h; }
   }
   if (!nearestHp) return null; // too far from any heat pump — see fireTap's toast
-  return { point: hit.point, normal: hit.normal };
+  return { point: hit.point, normal: hit.normal, nearestHp };
 }
 function isTapSpotFree(point) {
   for (const t of taps) if (t.pos.distanceTo(point) < 0.5) return false;
@@ -5415,11 +5534,16 @@ function fireTap() {
   tapFireCooldown = 0.28;
   const target = getPowerSwitchPlacementTarget();
   if (!target) { showToast(`MUST BE PLACED WITHIN ${POWER_SWITCH_RANGE}M OF A HEAT PUMP`); return; }
-  if (isTapSpotFree(target.point)) placeTap(target.point, target.normal);
+  const nearbyTapCount = taps.filter((t) => t.pos.distanceTo(target.nearestHp.pos) < 3).length;
+  if (nearbyTapCount >= MAX_TAPS_PER_HEATPUMP) { showToast(`WATER MAIN AT CAPACITY — ${MAX_TAPS_PER_HEATPUMP} TAPS MAX PER HEAT PUMP`); return; }
+  if (isTapSpotFree(target.point)) {
+    placeTap(target.point, target.normal);
+    if (nearbyTapCount + 1 === MAX_TAPS_PER_HEATPUMP) showToast('LAST TAP — THE MAIN IS NOW AT CAPACITY');
+  }
 }
 
-// component-wide BFS (same fidelity as isSwitchboardEnergized) — a power switch
-// "flows" once its connected pipe network reaches both a heat pump and a water main
+// component-wide BFS (same fidelity as isSwitchboardEnergized) — a tap "flows" once its
+// connected pipe network reaches both a heat pump and a water main
 function isTapNetworkComplete(tap) {
   const visited = new Set([tap]);
   const queue = [tap];
@@ -5457,10 +5581,208 @@ function toggleTapUnderCrosshair() {
   while (obj && !taps.some((t) => t.mesh === obj)) obj = obj.parent;
   const tap = taps.find((t) => t.mesh === obj);
   if (!tap) return false;
-  if (tap.wiredCables.size === 0) { showToast('NOTHING WIRED TO THIS SWITCH'); return true; }
+  if (tap.wiredCables.size === 0) { showToast('NOTHING WIRED TO THIS TAP'); return true; }
   tap.on = !tap.on;
-  showToast(tap.on ? 'POWER SWITCH ON' : 'POWER SWITCH OFF');
+  showToast(tap.on ? 'TAP ON' : 'TAP OFF');
   updateTapFlow();
+  return true;
+}
+
+// ---------- Water burst — spawns when the electrical Switch is flipped on before the
+// heat pump's plumbing is actually ready; a handful of tumbling blue blocks, no physics
+// engine needed, just gravity + a fixed lifetime ----------
+const waterBursts = [];
+function spawnWaterBurst(pos) {
+  for (let i = 0; i < 16; i++) {
+    const mat = matWaterBlock[i % matWaterBlock.length];
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), mat);
+    b.position.copy(pos).addScaledVector(new THREE.Vector3(rand(-0.2, 0.2), 0.3, rand(-0.2, 0.2)), 1);
+    scene.add(b);
+    const vel = new THREE.Vector3(rand(-3, 3), rand(2, 6), rand(-3, 3));
+    waterBursts.push({ mesh: b, vel, t: 0 });
+  }
+}
+function updateWaterBursts(dt) {
+  for (let i = waterBursts.length - 1; i >= 0; i--) {
+    const wb = waterBursts[i];
+    wb.t += dt;
+    wb.vel.y -= 9.8 * dt;
+    wb.mesh.position.addScaledVector(wb.vel, dt);
+    wb.mesh.rotation.x += dt * 5;
+    wb.mesh.rotation.y += dt * 4;
+    if (wb.t > 1.4) { scene.remove(wb.mesh); waterBursts.splice(i, 1); }
+  }
+}
+
+// ---------- Electrical Switch (gun 3) — mounted within 1m of a heat pump, wired via AC
+// Cable to an MSWB. Only turns on if that MSWB's breaker is on AND the heat pump it's
+// next to is already plumbed (reaches a main or a flowing tap) — flipping it on too early
+// blows the pipes instead (spawnWaterBurst) ----------
+const elecSwitches = [];
+function getSwitchPlacementTarget() {
+  const hit = findInverterPlacementHit();
+  if (!hit) return null;
+  let nearestHp = null, nearestDist = POWER_SWITCH_RANGE;
+  for (const h of heatPumps) {
+    const d = h.pos.distanceTo(hit.point);
+    if (d < nearestDist) { nearestDist = d; nearestHp = h; }
+  }
+  if (!nearestHp) return null;
+  return { point: hit.point, normal: hit.normal };
+}
+function isSwitchSpotFree(point) {
+  for (const s of elecSwitches) if (s.pos.distanceTo(point) < 0.5) return false;
+  return true;
+}
+function placeSwitch(point, normal) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.24, 0.1), matSwitchBody);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  const leverMat = new THREE.MeshStandardMaterial({ color: 0xff5050, emissive: 0x5a1010, emissiveIntensity: 1.0 });
+  const lever = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.14, 0.03), leverMat);
+  lever.position.set(0, 0.05, 0.08);
+  group.add(body, lever);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, 0.06);
+  scene.add(group);
+  worldMeshes.push(body);
+  const sw = { mesh: group, pos: point.clone(), normal: normal.clone(), wiredCables: new Set(), on: false, leverMat };
+  elecSwitches.push(sw);
+  return sw;
+}
+let switchFireCooldown = 0;
+function fireSwitch() {
+  if (switchFireCooldown > 0) return;
+  switchFireCooldown = 0.28;
+  const target = getSwitchPlacementTarget();
+  if (!target) { showToast(`MUST BE PLACED WITHIN ${POWER_SWITCH_RANGE}M OF A HEAT PUMP`); return; }
+  if (isSwitchSpotFree(target.point)) placeSwitch(target.point, target.normal);
+}
+// BFS across cables from a switch, looking for an MSWB with its breaker on
+function isSwitchMswbPowered(sw) {
+  const visited = new Set([sw]);
+  const queue = [sw];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const c of cables) {
+      let other = null;
+      if (c.startAnchor && c.startAnchor.obj === cur) other = c.endAnchor;
+      else if (c.endAnchor && c.endAnchor.obj === cur) other = c.startAnchor;
+      if (!other || visited.has(other.obj)) continue;
+      visited.add(other.obj);
+      if (other.type === 'mswb' && other.obj.breakerOn) return true;
+      if (other.type === 'mswb' || other.type === 'switch') queue.push(other.obj);
+    }
+  }
+  return false;
+}
+// a heat pump counts as "plumbed" once it reaches a water main, or a tap that's flowing
+function isHeatPumpPlumbed(hp) {
+  const visited = new Set([hp]);
+  const queue = [hp];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const c of cables) {
+      let other = null;
+      if (c.startAnchor && c.startAnchor.obj === cur) other = c.endAnchor;
+      else if (c.endAnchor && c.endAnchor.obj === cur) other = c.startAnchor;
+      if (!other || visited.has(other.obj)) continue;
+      visited.add(other.obj);
+      if (other.type === 'watermain') return true;
+      if (other.type === 'tap' && other.obj.flowing) return true;
+      if (['tap', 'heatpump', 'watermain'].includes(other.type)) queue.push(other.obj);
+    }
+  }
+  return false;
+}
+function toggleSwitchUnderCrosshair() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(elecSwitches.map((s) => s.mesh), true);
+  if (!hits.length) return false;
+  let obj = hits[0].object;
+  while (obj && !elecSwitches.some((s) => s.mesh === obj)) obj = obj.parent;
+  const sw = elecSwitches.find((s) => s.mesh === obj);
+  if (!sw) return false;
+  if (sw.on) {
+    sw.on = false;
+    sw.leverMat.color.setHex(0xff5050);
+    sw.leverMat.emissive.setHex(0x5a1010);
+    showToast('SWITCH OFF');
+    return true;
+  }
+  if (sw.wiredCables.size === 0) { showToast('NOTHING WIRED TO THIS SWITCH'); return true; }
+  if (!isSwitchMswbPowered(sw)) { showToast('MSWB NOT POWERED — FLIP THE BREAKER FIRST'); return true; }
+  let nearestHp = null, nearestDist = POWER_SWITCH_RANGE * 1.5;
+  for (const h of heatPumps) { const d = h.pos.distanceTo(sw.pos); if (d < nearestDist) { nearestDist = d; nearestHp = h; } }
+  if (!nearestHp || !isHeatPumpPlumbed(nearestHp)) {
+    spawnWaterBurst(sw.pos.clone());
+    showDangerBanner('⚠ NOT READY — PIPES BLEW OUT!');
+    return true;
+  }
+  sw.on = true;
+  sw.leverMat.color.setHex(0x4dff88);
+  sw.leverMat.emissive.setHex(0x2a8850);
+  showMilestoneBanner('🎉', 'HEAT PUMP SYSTEM ONLINE!');
+  return true;
+}
+
+// ---------- Main Switchboard / MSWB (gun 5) — placed anywhere on a wall, wired to one
+// or more Switches via AC Cable; the breaker (toggled with E) has to be on before any
+// switch wired to it can safely turn its heat pump on ----------
+const mswbs = [];
+const matMswbBody = new THREE.MeshStandardMaterial({ color: 0x24272b, roughness: 0.35, metalness: 0.7 });
+function getMswbPlacementTarget() {
+  const hit = findInverterPlacementHit();
+  if (!hit) return null;
+  return { point: hit.point, normal: hit.normal };
+}
+function isMswbSpotFree(point) {
+  for (const m of mswbs) if (m.pos.distanceTo(point) < 0.8) return false;
+  return true;
+}
+function placeMswb(point, normal) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.15), matMswbBody);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  const indicatorMat = new THREE.MeshStandardMaterial({ color: 0xff5050, emissive: 0x5a1010, emissiveIntensity: 1.0 });
+  const indicator = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, 0.02), indicatorMat);
+  indicator.position.set(0, 0.25, 0.08);
+  group.add(body, indicator);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, 0.08);
+  scene.add(group);
+  worldMeshes.push(body);
+  const wasFirst = mswbs.length === 0;
+  const m = { mesh: group, pos: point.clone(), normal: normal.clone(), wiredCables: new Set(), breakerOn: false, indicatorMat };
+  mswbs.push(m);
+  if (wasFirst) showMilestoneBanner('🔌', 'MAIN SWITCHBOARD INSTALLED!');
+  return m;
+}
+let mswbFireCooldown = 0;
+function fireMswb() {
+  if (mswbFireCooldown > 0) return;
+  mswbFireCooldown = 0.28;
+  const target = getMswbPlacementTarget();
+  if (!target) return;
+  if (isMswbSpotFree(target.point)) placeMswb(target.point, target.normal);
+}
+function toggleMswbUnderCrosshair() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(mswbs.map((m) => m.mesh), true);
+  if (!hits.length) return false;
+  let obj = hits[0].object;
+  while (obj && !mswbs.some((m) => m.mesh === obj)) obj = obj.parent;
+  const m = mswbs.find((x) => x.mesh === obj);
+  if (!m) return false;
+  if (m.wiredCables.size === 0) { showToast('NOTHING WIRED TO THIS MSWB'); return true; }
+  m.breakerOn = !m.breakerOn;
+  m.indicatorMat.color.setHex(m.breakerOn ? 0x4dff88 : 0xff5050);
+  m.indicatorMat.emissive.setHex(m.breakerOn ? 0x2a8850 : 0x5a1010);
+  showMilestoneBanner(m.breakerOn ? '🔌' : '⚠', m.breakerOn ? 'MSWB BREAKER ON' : 'MSWB BREAKER OFF');
   return true;
 }
 
@@ -5710,4 +6032,7 @@ window.__debug = {
   unlockedHeatPumpAreaTool: () => unlockedHeatPumpAreaTool,
   forceUnlockHeatPumpAreaTool: () => { unlockedHeatPumpAreaTool = true; totalHeatPumpsPlaced = Math.max(totalHeatPumpsPlaced, HEATPUMP_AREA_TOOL_UNLOCK_COUNT); },
   pickUpNearestHeatPump, heatPumpGroups,
+  elecSwitches, mswbs, fireSwitch, fireMswb, toggleSwitchUnderCrosshair, toggleMswbUnderCrosshair,
+  getSwitchPlacementTarget, isSwitchSpotFree, placeSwitch, getMswbPlacementTarget, isMswbSpotFree,
+  placeMswb, isSwitchMswbPowered, isHeatPumpPlumbed, spawnWaterBurst, MAX_TAPS_PER_HEATPUMP,
 };
