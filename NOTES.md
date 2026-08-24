@@ -241,6 +241,58 @@ Replaced the flat toast list of a locked job's planned tools with a real
   errors. Not yet tested with real mouse-look aiming in a live play
   session.
 
+### Demolition Contractor — third playable job (v19)
+
+Picked as the next job specifically to be a "wtf" moment for friends
+watching, not another connect-the-utilities build like Plumbing — the hook
+is that you can walk up to any existing city building and bring it down on
+demand, mid-game, with a real floor-by-floor collapse.
+
+- **1: Safety Barrier Gun** (`fireBarrier`/`placeBarrier`) — cosmetic
+  ground marker, no gating.
+- **2: Structural Scanner Gun** (`fireScan`) — aims via `raycastWorldHit()`
+  → `findBuildingContaining(x,z)` (the same helper fire-spread already
+  used), adds the building to `scannedBuildings`, shows fake-but-fun
+  diagnostic numbers. Required before charges can be armed on it — gives
+  the tools a reason to be used in order.
+- **3: Breaker Gun** (`fireBreaker`) — cosmetic wall-chip particles only
+  (reuses `waterBursts[]`'s generic gravity+lifetime tumble updater from
+  the Plumbing burst effect — same array, same `updateWaterBursts`, no new
+  per-frame updater needed), no persistent damage state.
+- **4: Controlled Charge Gun** (`fireCharge` LMB arms / `detonateCharges`
+  RMB fires) — up to `MAX_CHARGES_PER_BUILDING` (6) charge props per
+  building, gated on that building being scanned first. Detonating is the
+  actual payoff: it calls `getBuildingFireState(b)` +
+  `beginBuildingCollapse(b, st)` — the **exact same functions** the
+  building-fire system already uses for its floor-by-floor pancake
+  collapse (`buildCollapseFloors`, `collapseInstalledEquipment`,
+  `updateBuildingCollapse`) — just triggered on demand instead of waiting
+  for a fire to fully engulf the building. No new collapse logic at all,
+  just a new *entry point* into code that already existed. Also fires
+  `spawnDemolitionBlast` (a bigger, dust-colored version of the same burst
+  effect, 40 tumbling blocks + a decaying `PointLight` flash) and
+  `triggerScreenShake` (new: a `shakeTime`/`shakeMag` pair, applied as a
+  random position jitter once per frame right before `renderer.render()` —
+  safe to do with no "undo" step since `camera.position` is fully
+  overwritten by movement code every single frame anyway).
+- **5: Debris Vacuum Gun** — not a new tool at all, just the existing Demo
+  Tool (weapon 8) shown under slot 5 for this job (`demoToolGroup.visible`
+  extended with an `|| (w === 5 && demoJob)` clause, `Digit5` no longer
+  gated behind the Water Gun's salvage unlock for this job either — mirrors
+  exactly how Plumber's MSWB got its own slot-5 carve-out).
+
+Verified via `window.__debug`: `beginBuildingCollapse` triggered directly
+on a real building box (bypassing charges/scan entirely) correctly flips
+`collapsing: true` and builds a real `floorGroups` array (7 floors for the
+test building); `spawnDemolitionBlast`/`triggerScreenShake` run with no
+console errors; the Job Hut hot-swap panel correctly lists all 5 real
+slot names/icons for `demolition` now that it's `unlocked: true`. Did
+**not** verify the collapse actually finishes animating in a live locked
+session (the automated check ran with the pointer never locked, so
+`updateBuildingCollapse` may not have been ticking) — worth a live
+playtest to confirm the pancake collapse visually completes the same way
+it does when triggered by fire.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic

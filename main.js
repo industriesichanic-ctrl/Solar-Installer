@@ -1612,6 +1612,59 @@ customSkinGroup.position.set(0.22, -0.2, -0.4);
 customSkinGroup.visible = false;
 camera.add(customSkinGroup);
 const loadoutSkins = {}; // slotIndex -> { name, iconTemplate: THREE.Object3D }
+
+// ---------- Demolition Contractor view models (slots 1-4) ----------
+const barrierGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.28), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const flag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.02), new THREE.MeshStandardMaterial({ color: 0xff8a1a }));
+  flag.position.set(0, 0.09, 0.02);
+  barrierGunGroup.add(body, flag);
+}
+barrierGunGroup.position.set(0.22, -0.2, -0.4);
+barrierGunGroup.visible = false;
+camera.add(barrierGunGroup);
+
+const scannerGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.24), matToolBody);
+  body.position.set(0, 0, -0.09);
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.1, 12), new THREE.MeshStandardMaterial({ color: 0x2ad4ff, emissive: 0x0d5566, emissiveIntensity: 0.8 }));
+  lens.rotation.x = Math.PI / 2;
+  lens.position.set(0, 0.02, -0.24);
+  scannerGunGroup.add(body, lens);
+}
+scannerGunGroup.position.set(0.22, -0.2, -0.4);
+scannerGunGroup.visible = false;
+camera.add(scannerGunGroup);
+
+const breakerGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.32), matToolBody);
+  body.position.set(0, 0, -0.12);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.16, 8), new THREE.MeshStandardMaterial({ color: 0x8a8f96, metalness: 0.7, roughness: 0.3 }));
+  tip.rotation.x = -Math.PI / 2;
+  tip.position.set(0, 0, -0.35);
+  breakerGunGroup.add(body, tip);
+}
+breakerGunGroup.position.set(0.22, -0.2, -0.4);
+breakerGunGroup.visible = false;
+camera.add(breakerGunGroup);
+
+const chargeGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const charge = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.05), new THREE.MeshStandardMaterial({ color: 0x1c1e21, roughness: 0.4 }));
+  charge.position.set(0, 0.08, -0.02);
+  const light = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 6), new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0x991010, emissiveIntensity: 1.4 }));
+  light.position.set(0, 0.08, 0.01);
+  chargeGunGroup.add(body, charge, light);
+}
+chargeGunGroup.position.set(0.22, -0.2, -0.4);
+chargeGunGroup.visible = false;
+camera.add(chargeGunGroup);
 function refreshEquippedSkin() {
   customSkinGroup.clear();
   const skin = loadoutSkins[currentWeapon];
@@ -1669,6 +1722,7 @@ function setWeapon(w) {
   currentWeapon = w;
   const solarJob = currentJob === 'solar';
   const plumberJob = currentJob === 'plumber';
+  const demoJob = currentJob === 'demolition';
   // slots 1-4 are job-specific toolkits — nothing shows for either if no job is
   // picked yet, which is exactly what "no tools until you select a job" needs
   gunGroup.visible = solarJob && w === 1;
@@ -1680,12 +1734,17 @@ function setWeapon(w) {
   switchGunGroup.visible = plumberJob && w === 3;
   acCableGunGroup.visible = plumberJob && w === 4;
   mswbGunGroup.visible = plumberJob && w === 5;
+  barrierGunGroup.visible = demoJob && w === 1;
+  scannerGunGroup.visible = demoJob && w === 2;
+  breakerGunGroup.visible = demoJob && w === 3;
+  chargeGunGroup.visible = demoJob && w === 4;
   pipeRouterGroup.visible = false; // no longer part of any loadout — kept only so old refs don't break
-  // slots 5+ are universal utility tools for Solar/no-job; Plumber's slot 5 is the MSWB gun instead
-  waterGunGroup.visible = w === 5 && !plumberJob;
+  // slots 5+ are universal utility tools for Solar/no-job; Plumber's slot 5 is the MSWB
+  // gun instead, Demolition's slot 5 is just the existing Demo Tool (weapon 8) relabeled
+  waterGunGroup.visible = w === 5 && !plumberJob && !demoJob;
   repairGunGroup.visible = w === 6;
   bulkInverterGunGroup.visible = w === 7;
-  demoToolGroup.visible = w === 8;
+  demoToolGroup.visible = w === 8 || (w === 5 && demoJob);
   gun0Group.visible = w === 0;
   refreshEquippedSkin();
   if (loadoutSkins[w]) {
@@ -1694,6 +1753,8 @@ function setWeapon(w) {
     gunGroup.visible = false; cableGunGroup.visible = false; routerGunGroup.visible = false;
     inverterGunGroup.visible = false; hpGunGroup.visible = false; pipeGunGroup.visible = false;
     switchGunGroup.visible = false; acCableGunGroup.visible = false; mswbGunGroup.visible = false;
+    barrierGunGroup.visible = false; scannerGunGroup.visible = false; breakerGunGroup.visible = false;
+    chargeGunGroup.visible = false;
   }
   mouseDown = false;
   if (w === 2) cancelCable();
@@ -1758,9 +1819,10 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit3') setWeapon(3);
   if (e.code === 'Digit4') setWeapon(4);
   if (e.code === 'Digit5') {
-    // Plumber's slot 5 is the MSWB gun — core loadout, not gated behind the
-    // Water Gun's salvage unlock (that unlock only applies to Solar/no-job)
-    if (currentJob === 'plumber' || upgrades.waterGunUnlocked) setWeapon(5);
+    // Plumber's slot 5 is the MSWB gun, Demolition's is the Debris Vacuum Gun — both
+    // core loadout, not gated behind the Water Gun's salvage unlock (that unlock only
+    // applies to Solar/no-job)
+    if (currentJob === 'plumber' || currentJob === 'demolition' || upgrades.waterGunUnlocked) setWeapon(5);
     else showToast(`WATER GUN LOCKED — GIVE ${SCRAP_UNLOCK_CABLE} CABLE + ${SCRAP_UNLOCK_PANEL} PANEL SCRAP TO THE SALVAGE CLERIC`);
   }
   if (e.code === 'Digit6') {
@@ -1824,6 +1886,21 @@ document.addEventListener('mousedown', (e) => {
   // no job picked yet — no weapon actions at all (Map 2 has no Job Hut, exempt)
   if (MAP_ID === 1 && currentJob === null) return;
 
+  // Demolition Contractor's 4 job-specific slots are all simple single-action tools
+  // (no area-drag/router complexity like Solar/Plumber), so they're handled as one
+  // early branch rather than folded into the generic weapon dispatch below
+  if (currentJob === 'demolition' && currentWeapon >= 1 && currentWeapon <= 4) {
+    if (e.button === 0) {
+      if (currentWeapon === 1) fireBarrier();
+      else if (currentWeapon === 2) fireScan();
+      else if (currentWeapon === 3) fireBreaker();
+      else if (currentWeapon === 4) fireCharge();
+    } else if (e.button === 2 && currentWeapon === 4) {
+      detonateCharges();
+    }
+    return;
+  }
+
   if (currentWeapon === 1) {
     if (e.button === 0) mouseDown = true;
     // Map 2's weapon 1 is the tree cutter (see fire()) — no RMB action, and
@@ -1862,6 +1939,10 @@ document.addEventListener('mousedown', (e) => {
   } else if (currentWeapon === 5) {
     if (currentJob === 'plumber') {
       if (e.button === 0) fireMswb();
+    } else if (currentJob === 'demolition') {
+      // Debris Vacuum Gun is just the Demo Tool (weapon 8) under a different slot number
+      if (e.button === 0) fireDemoTool();
+      if (e.button === 2 && upgrades.demoToolTier >= 2) demoDrag = { collected: 0, tick: 0 };
     } else {
       if (e.button === 0) mouseDown = true; // hold to spray
     }
@@ -1886,7 +1967,9 @@ document.addEventListener('mouseup', (e) => {
     rmbDown = false;
     if (currentWeapon === 1 && currentJob === 'plumber' && (unlockedHeatPumpAreaTool || hpAreaDrag)) endHeatPumpAreaDrag();
     else if (currentWeapon === 1 && unlockedAreaTool) endAreaDrag();
-    if (currentWeapon === 8 && demoDrag) { showToast(`DRAG COLLECTED ${demoDrag.collected} UNITS`); demoDrag = null; }
+    if ((currentWeapon === 8 || (currentWeapon === 5 && currentJob === 'demolition')) && demoDrag) {
+      showToast(`DRAG COLLECTED ${demoDrag.collected} UNITS`); demoDrag = null;
+    }
   }
 });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -4768,6 +4851,23 @@ function updateHud() {
   let weaponLine;
   if (MAP_ID === 1 && currentJob === null) {
     weaponLine = `<b>No trade selected</b><br>Walk into the <span class="good">Job Hut</span> and pick a job at any desk (aim at it, <span class="good">RMB</span> select, <span class="good">LMB</span> confirm) to get your tools.`;
+  } else if (currentJob === 'demolition' && currentWeapon === 1) {
+    weaponLine = `<b>1: Safety Barrier Gun</b><br>` +
+      `<span class="good">LMB</span> drops a barrier wherever you're aiming — purely cosmetic, marks the zone`;
+  } else if (currentJob === 'demolition' && currentWeapon === 2) {
+    weaponLine = `<b>2: Structural Scanner Gun</b><br>` +
+      `<span class="good">LMB</span> aim at a building to scan it — required before you can arm charges on it`;
+  } else if (currentJob === 'demolition' && currentWeapon === 3) {
+    weaponLine = `<b>3: Breaker Gun</b><br>` +
+      `<span class="good">LMB</span> aim at a wall to knock a chunk loose — cosmetic, just feedback`;
+  } else if (currentJob === 'demolition' && currentWeapon === 4) {
+    weaponLine = `<b>4: Controlled Charge Gun</b><br>` +
+      `<span class="good">LMB</span> arm a charge on a <b>scanned</b> building (up to ${MAX_CHARGES_PER_BUILDING}) &nbsp; <span class="good">RMB</span> aim at that building to <b>detonate every charge on it</b><br>` +
+      `<span class="bad">brings the whole building down floor by floor — there's no undo</span>`;
+  } else if (currentJob === 'demolition' && currentWeapon === 5) {
+    const tier = upgrades.demoToolTier;
+    weaponLine = `<b>5: Debris Vacuum Gun</b> (tier ${tier})<br>` +
+      `<span class="good">LMB</span> break up a rock/timber/metal chunk in a rubble pile for +20${tier >= 2 ? ` &nbsp; <span class="good">RMB</span> hold + sweep to drag-collect, up to 100/drag` : ''}`;
   } else if (currentWeapon === 1 && MAP_ID === 2) {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
     weaponLine = `<b>1: Tree Cutter</b> — ${reloadMsg}<br>` +
@@ -4930,6 +5030,10 @@ function animate() {
   if (tapFireCooldown > 0) tapFireCooldown -= dt;
   if (switchFireCooldown > 0) switchFireCooldown -= dt;
   if (mswbFireCooldown > 0) mswbFireCooldown -= dt;
+  if (barrierFireCooldown > 0) barrierFireCooldown -= dt;
+  if (scanCooldown > 0) scanCooldown -= dt;
+  if (breakerCooldown > 0) breakerCooldown -= dt;
+  if (chargeFireCooldown > 0) chargeFireCooldown -= dt;
   if (bulkInverterCooldown > 0) bulkInverterCooldown -= dt;
   if (repairCooldown > 0) repairCooldown -= dt;
   if (demoToolCooldown > 0) demoToolCooldown -= dt;
@@ -5044,7 +5148,12 @@ function animate() {
   // ghost preview / area-drag preview / cable preview at aim point
   if (isLocked) {
     ghostHpAreaMesh.visible = false;
-    if (currentWeapon === 1 && areaDrag) {
+    if (currentJob === 'demolition' && currentWeapon >= 1 && currentWeapon <= 4) {
+      // no placement-grid ghost needed — these are all single-click aim-and-fire tools
+      ghostMesh.visible = false;
+      ghostAreaMesh.visible = false;
+      ghostInverterMesh.visible = false;
+    } else if (currentWeapon === 1 && areaDrag) {
       ghostMesh.visible = false;
       ghostInverterMesh.visible = false;
       updateAreaDragPreview();
@@ -5149,6 +5258,17 @@ function animate() {
     ghostInverterMesh.visible = false;
   }
 
+  // controlled-demolition screen shake — camera.position is fully overwritten by the
+  // movement code above every frame, so nudging it here needs no undo, it just gets
+  // replaced again next frame
+  if (shakeTime > 0) {
+    shakeTime -= dt;
+    const s = shakeMag * Math.max(0, shakeTime);
+    camera.position.x += (Math.random() - 0.5) * s;
+    camera.position.y += (Math.random() - 0.5) * s * 0.6;
+    camera.position.z += (Math.random() - 0.5) * s;
+  }
+
   renderer.render(scene, camera);
 }
 
@@ -5209,8 +5329,7 @@ const JOBS = [
     tools: ['Fountain Basin Gun', 'Water Jet Gun', 'Fountain Pipe Gun', 'Pump Gun', 'Fountain Light Gun', 'Pattern Controller Gun'] },
   { id: 'muralist', name: 'Mural Artist', icon: '🖌️', unlocked: false,
     tools: ['Sketch Projector Gun', 'Spray Paint Gun', 'Detail Paint Gun', 'Stencil Gun', 'Colour Blend Gun', 'Sealant Gun'] },
-  { id: 'demolition', name: 'Demolition Contractor', icon: '🧨', unlocked: false,
-    tools: ['Safety Barrier Gun', 'Structural Scanner Gun', 'Breaker Gun', 'Cutting Gun', 'Controlled Charge Gun', 'Debris Vacuum Gun'] },
+  { id: 'demolition', name: 'Demolition Contractor', icon: '🧨', unlocked: true },
   { id: 'security', name: 'Security/CCTV Installer', icon: '📷', unlocked: false,
     tools: ['Camera Gun', 'PTZ Camera Gun', 'Security Cable Gun', 'Alarm Sensor Gun', 'Control Panel Gun', 'Monitor Gun'] },
 ];
@@ -5337,10 +5456,12 @@ function confirmJobSelection() {
 const LOADOUT_SLOT_NAMES = {
   solar: ['Solar Panel Gun', 'Cable Gun', 'Cable Router', 'Inverter Gun'],
   plumber: ['HP Gun', 'Pipe Gun', 'Switch', 'AC Cable', 'MSWB'],
+  demolition: ['Safety Barrier Gun', 'Structural Scanner Gun', 'Breaker Gun', 'Controlled Charge Gun', 'Debris Vacuum Gun'],
 };
 const LOADOUT_SLOT_MODELS = {
   solar: [gunGroup, cableGunGroup, routerGunGroup, inverterGunGroup],
   plumber: [hpGunGroup, pipeGunGroup, switchGunGroup, acCableGunGroup, mswbGunGroup],
+  demolition: [barrierGunGroup, scannerGunGroup, breakerGunGroup, chargeGunGroup, demoToolGroup],
 };
 function buildGenericToolIcon() {
   const g = new THREE.Group();
@@ -5951,6 +6072,161 @@ function toggleMswbUnderCrosshair() {
   return true;
 }
 
+// ---------- Screen shake — controlled demolitions only, decays linearly, applied once
+// per frame right before render (see animate()) since camera.position is fully
+// recomputed by movement every frame anyway ----------
+let shakeTime = 0, shakeMag = 0;
+function triggerScreenShake(mag, dur = 0.5) { shakeMag = mag; shakeTime = dur; }
+
+// ---------- Demolition Contractor toolset ----------
+// 1: Safety Barrier Gun (fireBarrier) — cosmetic ground marker, no gating at all.
+// 2: Structural Scanner Gun (fireScan) — aim at a building, "scans" it (fake but fun
+//    diagnostic numbers) and marks it in `scannedBuildings` — required before charges
+//    can be armed on it, so there's a real reason to use every tool in order.
+// 3: Breaker Gun (fireBreaker) — cosmetic wall-chip hits, no persistent damage state,
+//    just an immediate-feedback "you're doing something" tool.
+// 4: Controlled Charge Gun (fireCharge LMB arms / detonateCharges RMB fires) — up to
+//    MAX_CHARGES_PER_BUILDING charges per building; detonating calls the *exact same*
+//    beginBuildingCollapse() the building-fire system already uses for its floor-by-
+//    floor pancake collapse — no new collapse logic needed, just triggered on demand
+//    instead of waiting for a fire to fully engulf the building first.
+// 5+: Debris Vacuum Gun is just the existing Demo Tool (weapon 8), relabeled in the HUD.
+const scannedBuildings = new Set();
+const demolitionCharges = new Map(); // building b -> [{ mesh }]
+const MAX_CHARGES_PER_BUILDING = 6;
+const matBarrierPost = new THREE.MeshStandardMaterial({ color: 0xff8a1a, roughness: 0.6 });
+const matBarrierStripe = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+const matChargeBody = new THREE.MeshStandardMaterial({ color: 0x1c1e21, roughness: 0.4, metalness: 0.5 });
+const matChargeLight = new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0x991010, emissiveIntensity: 1.4 });
+const matDustBlock = [0x8a8378, 0x6e6a62, 0xb0a898].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 }));
+
+function placeBarrier(point) {
+  const group = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8), matBarrierPost);
+  post.position.y = 0.45;
+  post.castShadow = true;
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.05), matBarrierStripe);
+  stripe.position.y = 0.55;
+  group.add(post, stripe);
+  group.position.copy(point);
+  scene.add(group);
+  groundColliders.push(group);
+  return group;
+}
+let barrierFireCooldown = 0;
+function fireBarrier() {
+  if (barrierFireCooldown > 0) return;
+  barrierFireCooldown = 0.2;
+  const hit = raycastWorldHit();
+  if (!hit) return;
+  placeBarrier(hit.point);
+}
+
+let scanCooldown = 0;
+function fireScan() {
+  if (scanCooldown > 0) return;
+  scanCooldown = 0.4;
+  const hit = raycastWorldHit();
+  if (!hit) { showToast('AIM AT A BUILDING TO SCAN IT'); return; }
+  const b = findBuildingContaining(hit.point.x, hit.point.z);
+  if (!b) { showToast('NOTHING SCANNABLE THERE'); return; }
+  if (scannedBuildings.has(b)) { showToast('ALREADY SCANNED — CLEAR TO ARM CHARGES'); return; }
+  scannedBuildings.add(b);
+  const supports = 2 + Math.floor(Math.random() * 3);
+  const utilities = Math.floor(Math.random() * 3);
+  showMilestoneBanner('🔍', `SCAN COMPLETE — ${supports} SUPPORTS, ${utilities} UTILITIES — CLEAR TO ARM CHARGES`);
+}
+
+let breakerCooldown = 0;
+function fireBreaker() {
+  if (breakerCooldown > 0) return;
+  breakerCooldown = 0.25;
+  const hit = raycastWorldHit();
+  if (!hit) return;
+  for (let i = 0; i < 3; i++) {
+    const chip = new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.05, 0.1)), matScrap);
+    chip.position.copy(hit.point);
+    scene.add(chip);
+    const vel = new THREE.Vector3(rand(-2, 2), rand(1, 3), rand(-2, 2));
+    waterBursts.push({ mesh: chip, vel, t: 0 }); // reuses the generic tumble-and-fade updater
+  }
+  showToast('CHUNK BROKEN LOOSE');
+}
+
+function placeCharge(point, normal, b) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.08), matChargeBody);
+  const light = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 6), matChargeLight);
+  light.position.z = 0.05;
+  group.add(body, light);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, 0.05);
+  scene.add(group);
+  if (!demolitionCharges.has(b)) demolitionCharges.set(b, []);
+  demolitionCharges.get(b).push({ mesh: group });
+  return group;
+}
+let chargeFireCooldown = 0;
+function fireCharge() {
+  if (chargeFireCooldown > 0) return;
+  chargeFireCooldown = 0.25;
+  const hit = raycastWorldHit();
+  if (!hit) return;
+  const b = findBuildingContaining(hit.point.x, hit.point.z);
+  if (!b) { showToast('AIM AT A BUILDING'); return; }
+  if (!scannedBuildings.has(b)) { showToast('SCAN IT FIRST — WEAPON 2'); return; }
+  const existing = demolitionCharges.get(b) || [];
+  if (existing.length >= MAX_CHARGES_PER_BUILDING) { showToast(`MAX ${MAX_CHARGES_PER_BUILDING} CHARGES ALREADY ARMED`); return; }
+  placeCharge(hit.point, hit.normal, b);
+  showToast(`CHARGE ARMED: ${existing.length + 1}/${MAX_CHARGES_PER_BUILDING} — RMB TO DETONATE`);
+}
+
+// a bigger, dust-colored version of the water-burst tumble effect (same physics-free
+// gravity+lifetime updater, see updateWaterBursts) plus a quick bright flash for drama
+function spawnDemolitionBlast(pos) {
+  for (let i = 0; i < 40; i++) {
+    const mat = matDustBlock[i % matDustBlock.length];
+    const size = rand(0.15, 0.4);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mat);
+    b.position.copy(pos).addScaledVector(new THREE.Vector3(rand(-1, 1), 0, rand(-1, 1)), 1);
+    scene.add(b);
+    const vel = new THREE.Vector3(rand(-6, 6), rand(4, 11), rand(-6, 6));
+    waterBursts.push({ mesh: b, vel, t: 0 });
+  }
+  const flash = new THREE.PointLight(0xffb066, 6, 20, 2);
+  flash.position.copy(pos);
+  scene.add(flash);
+  let flashT = 0.25;
+  const tick = () => {
+    flashT -= 0.03;
+    flash.intensity = Math.max(0, flashT) * 24;
+    if (flashT > 0) requestAnimationFrame(tick); else scene.remove(flash);
+  };
+  tick();
+}
+
+function detonateCharges() {
+  const hit = raycastWorldHit();
+  const b = hit ? findBuildingContaining(hit.point.x, hit.point.z) : null;
+  if (!b || !demolitionCharges.has(b) || demolitionCharges.get(b).length === 0) {
+    showToast('AIM AT A BUILDING WITH ARMED CHARGES TO DETONATE');
+    return;
+  }
+  const st = getBuildingFireState(b);
+  if (st.demolishing || st.collapsing || st.rubbleSpawned) { showToast('ALREADY COMING DOWN'); return; }
+  const charges = demolitionCharges.get(b);
+  demolitionCharges.delete(b);
+  charges.forEach((c) => { scene.remove(c.mesh); spawnWaterBurst(c.mesh.position.clone()); });
+  const mid = new THREE.Vector3((b.minX + b.maxX) / 2, Math.min(3, b.topY * 0.4), (b.minZ + b.maxZ) / 2);
+  spawnDemolitionBlast(mid);
+  triggerScreenShake(1.1, 0.6);
+  st.demolishing = true;
+  st.fires = [];
+  beginBuildingCollapse(b, st);
+  showDangerBanner('💥 CONTROLLED DEMOLITION — FIRE IN THE HOLE!');
+}
+
 // ============================================================================
 // Map 2: Solar Farm — Open Range. A separate world built far from Map 1's city
 // (see MAP2_ORIGIN) — open ground, a lot of trees shading a fixed 1MW tilted
@@ -6202,4 +6478,8 @@ window.__debug = {
   placeMswb, isSwitchMswbPowered, isHeatPumpPlumbed, spawnWaterBurst, MAX_TAPS_PER_HEATPUMP,
   loadoutSkins, hotSwapSlot, findLoadoutRowUnderCrosshair, updateJobLoadoutPanel,
   jobLoadoutPanel, loadoutRows, refreshEquippedSkin,
+  scannedBuildings, demolitionCharges, MAX_CHARGES_PER_BUILDING,
+  fireBarrier, fireScan, fireBreaker, fireCharge, detonateCharges, findBuildingContaining,
+  buildingBoxes, megaBuildingBoxes, buildingFireState, getBuildingFireState, beginBuildingCollapse,
+  triggerScreenShake, spawnDemolitionBlast,
 };
