@@ -1029,11 +1029,12 @@ function buildSalvageYard() {
     ['panelSign', 'panel', '#8aff9e', '#4dff88'],
     ['inverterSign', 'inverter', '#9fd4ff', '#4ab0ff'],
     ['rockSign', 'rock', '#d8d8d8', '#9a9a9a'],
+    ['metalSign', 'metal', '#c3c8cc', '#9aa0a6'],
     ['timberSign', 'timber', '#e0b078', '#a86a3a'],
   ];
   signDefs.forEach(([key, label, color, border], i) => {
-    const sign = makeTextSprite(`0 ${label}`, { fontSize: 36, color, border, scale: 0.34 });
-    sign.position.set(desk.position.x, 3.15 - i * 0.42, clericZ - 0.94);
+    const sign = makeTextSprite(`0 ${label}`, { fontSize: 34, color, border, scale: 0.32 });
+    sign.position.set(desk.position.x, 3.2 - i * 0.38, clericZ - 0.94);
     scene.add(sign);
     salvageCleric[key] = sign;
   });
@@ -1059,18 +1060,18 @@ buildSalvageYard();
 // each weapon sits on the counter with a floating price tag. RMB while aiming at a gun
 // selects it, LMB while selected attempts to buy it by spending given-scrap totals. ----------
 const SHOP_ITEMS = [
-  { slot: 6, name: 'Panel Repair Tool', cost: { cable: 30, panel: 30, inverter: 5, rock: 10, timber: 10 } },
-  { slot: 7, name: 'Bulk Inverter Gun', cost: { cable: 50, panel: 20, inverter: 15, rock: 20, timber: 20 } },
+  { slot: 6, name: 'Panel Repair Tool', cost: { cable: 30, panel: 30, inverter: 5, rock: 10, metal: 10, timber: 10 } },
+  { slot: 7, name: 'Bulk Inverter Gun', cost: { cable: 50, panel: 20, inverter: 15, rock: 20, metal: 20, timber: 20 } },
 ];
 // the Demo Tool only appears for sale once 100 rock + 100 timber have been given —
 // it isn't in SHOP_ITEMS from the start, see maybeAddDemoToolToShop below
-const DEMO_TOOL_ITEM = { slot: 8, name: 'Demo Tool', cost: { cable: 0, panel: 0, inverter: 0, rock: 200, timber: 200 } };
+const DEMO_TOOL_ITEM = { slot: 8, name: 'Demo Tool', cost: { cable: 0, panel: 0, inverter: 0, rock: 200, metal: 0, timber: 200 } };
 const DEMO_TOOL_SHOP_GATE = { rock: 100, timber: 100 }; // given totals needed before it's even listed
 let selectedShopItem = null;
 const shopItemMeshes = []; // { mesh, item }
 
 function costLine(cost) {
-  return `${cost.cable} cable / ${cost.panel} panel / ${cost.inverter} inv / ${cost.rock} rock / ${cost.timber} timber`;
+  return `${cost.cable} cable / ${cost.panel} panel / ${cost.inverter} inv / ${cost.rock} rock / ${cost.metal} metal / ${cost.timber} timber`;
 }
 
 // adds one shop item's prop + price tag at counter slot index i; used both for the
@@ -1148,7 +1149,7 @@ function purchaseSelectedShopItem() {
   if (upgrades[unlockedKey]) { showToast('ALREADY OWNED'); return; }
   const c = item.cost;
   if (givenCableScrap < c.cable || givenPanelScrap < c.panel || givenInverterScrap < c.inverter ||
-      givenRockScrap < c.rock || givenTimberScrap < c.timber) {
+      givenRockScrap < c.rock || givenMetalScrap < c.metal || givenTimberScrap < c.timber) {
     showToast(`NOT ENOUGH SALVAGE GIVEN — NEED ${costLine(c)}`);
     return;
   }
@@ -1156,6 +1157,7 @@ function purchaseSelectedShopItem() {
   givenPanelScrap -= c.panel;
   givenInverterScrap -= c.inverter;
   givenRockScrap -= c.rock;
+  givenMetalScrap -= c.metal;
   givenTimberScrap -= c.timber;
   if (item.slot === 8) { upgrades.demoToolUnlocked = true; upgrades.demoToolTier = 1; }
   else upgrades[unlockedKey] = true;
@@ -2252,6 +2254,7 @@ function creditScrap(type, n) {
   else if (type === 'inverter') carriedInverterScrap += n;
   else if (type === 'rock') carriedRockScrap += n;
   else if (type === 'timber') carriedTimberScrap += n;
+  else if (type === 'metal') carriedMetalScrap += n;
   else carriedCableScrap += n;
 }
 
@@ -2990,6 +2993,7 @@ function cancelCable() {
 }
 
 const matTimberScrap = new THREE.MeshStandardMaterial({ color: 0x7a5230, roughness: 0.85, metalness: 0.0 });
+const matMetalScrap = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.5, metalness: 0.75 });
 const matInverterScrap = new THREE.MeshStandardMaterial({ color: 0x2a3a44, roughness: 0.4, metalness: 0.6 });
 
 // five scrap types, each visually distinct: cable = coiled wire (torus), panel = a
@@ -3017,6 +3021,10 @@ function dropScrap(point, type = 'cable') {
     scrap = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.08), matTimberScrap);
     scrap.rotation.y = rand(0, Math.PI);
     restY = 0.05;
+  } else if (type === 'metal') {
+    scrap = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.06, 0.1), matMetalScrap);
+    scrap.rotation.y = rand(0, Math.PI);
+    restY = 0.04;
   } else {
     scrap = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.045, 6, 10), matScrap);
     scrap.rotation.x = Math.PI / 2;
@@ -3332,7 +3340,7 @@ function computeBuildingBlocks(b) {
 function getBuildingFireState(b) {
   let st = buildingFireState.get(b);
   if (!st) {
-    st = { blocks: computeBuildingBlocks(b), litCount: 0, demolishing: false, collapsing: false, rubbleSpawned: false };
+    st = { blocks: computeBuildingBlocks(b), litCount: 0, demolishing: false, collapsing: false, rubbleSpawned: false, fires: [] };
     buildingFireState.set(b, st);
   }
   return st;
@@ -3344,7 +3352,7 @@ function advanceBuildingFire(b) {
   const toLight = Math.min(BUILDING_BLOCKS_PER_TICK, st.blocks.length - st.litCount);
   for (let i = 0; i < toLight; i++) {
     const spot = st.blocks[st.litCount];
-    spawnFireEffect(new THREE.Vector3(spot.x, spot.y, spot.z), true);
+    st.fires.push(spawnFireEffect(new THREE.Vector3(spot.x, spot.y, spot.z), true));
     st.litCount++;
   }
   if (st.litCount >= st.blocks.length) {
@@ -3423,6 +3431,12 @@ function buildCollapseFloors(b) {
 // and finally the shell itself) drops floor by floor, each one landing on top of the
 // last, until the whole building has pancaked down into one walkable rubble pile
 function beginBuildingCollapse(b, st) {
+  // the building's open flames go out the moment it starts collapsing — each one just
+  // keeps decaying/smoking for 5 more seconds (reusing the existing non-persistent
+  // flame/smoke fade — see updateFires) instead of burning indefinitely
+  st.fires.forEach((f) => { f.persistent = false; f.dur = 5; f.t = 5; });
+  st.fires = [];
+
   if (b.roofMesh) {
     const gi = groundColliders.indexOf(b.roofMesh);
     if (gi >= 0) groundColliders.splice(gi, 1);
@@ -3466,7 +3480,9 @@ function finishDemolition(b, st) {
   st.collapsing = false;
   const midX = (b.minX + b.maxX) / 2, midZ = (b.minZ + b.maxZ) / 2;
   const pileRadius = Math.max(2, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) / 2);
-  for (let i = 0; i < 6; i++) {
+  // plain decorative boulders filling out the pile (not individually salvageable —
+  // just bulk, same dodecahedron look as every other rubble pile in the game)
+  for (let i = 0; i < 10; i++) {
     const a = Math.random() * Math.PI * 2, rr = Math.random() * pileRadius;
     const rubble = new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.5, 1.2)), matScrap);
     rubble.position.set(midX + Math.cos(a) * rr, st.pileTop + rand(0.3, 0.9), midZ + Math.sin(a) * rr);
@@ -3476,15 +3492,17 @@ function finishDemolition(b, st) {
     scene.add(rubble);
     groundColliders.push(rubble); // rubble pile stays walkable
   }
-  // a handful of salvageable chunks (rock = broken masonry, timber = a splintered
-  // roof/floor beam) — need the Demo Tool to convert them into carryable scrap
-  for (let i = 0; i < 6; i++) {
-    const type = i % 2 === 0 ? 'rock' : 'timber';
+  // the salvageable chunks: the collapsed floors break up into a mixed pile of
+  // boulders (rock), bent metal beams, and splintered timber — the Demo Tool (or the
+  // baseline E interact) converts each one into carryable scrap
+  for (let i = 0; i < 12; i++) {
+    const type = ['rock', 'metal', 'timber'][i % 3];
     const a = Math.random() * Math.PI * 2, rr = Math.random() * pileRadius;
     const pos = new THREE.Vector3(midX + Math.cos(a) * rr, st.pileTop + rand(0.4, 1.1), midZ + Math.sin(a) * rr);
-    const mesh = type === 'rock'
-      ? new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.35, 0.6)), matScrap)
-      : new THREE.Mesh(new THREE.BoxGeometry(rand(1.2, 2.0), 0.18, 0.18), matTimberScrap);
+    let mesh;
+    if (type === 'rock') mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.35, 0.6)), matScrap);
+    else if (type === 'metal') mesh = new THREE.Mesh(new THREE.BoxGeometry(rand(1.0, 1.8), 0.14, 0.14), matMetalScrap);
+    else mesh = new THREE.Mesh(new THREE.BoxGeometry(rand(1.2, 2.0), 0.18, 0.18), matTimberScrap);
     mesh.position.copy(pos);
     mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * 0.4);
     mesh.castShadow = true;
@@ -3493,9 +3511,9 @@ function finishDemolition(b, st) {
     groundColliders.push(mesh);
     salvageableRubble.push({ mesh, type });
   }
-  // no auto-unlock here anymore — rock/timber start out only collectible one at a
-  // time with E (see handleInteractKey); the Demo Tool itself is a shop purchase
-  // gated on 100 given rock + 100 given timber (see maybeUnlockDemoToolShopItem)
+  // no auto-unlock here anymore — rock/metal/timber start out only collectible one at
+  // a time with E (see handleInteractKey); the Demo Tool itself is a shop purchase
+  // gated on 100 given rock + 100 given timber (see maybeAddDemoToolToShop)
 }
 
 // per-frame: whichever floor is currently falling accelerates under gravity until its
@@ -3927,6 +3945,7 @@ let carriedPanelScrap = 0;
 let carriedInverterScrap = 0;
 let carriedRockScrap = 0;
 let carriedTimberScrap = 0;
+let carriedMetalScrap = 0;
 let credits = 0;
 const SCRAP_UNLOCK_CABLE = 1000;
 const SCRAP_UNLOCK_PANEL = 500;
@@ -3935,10 +3954,11 @@ let givenPanelScrap = 0;
 let givenInverterScrap = 0;
 let givenRockScrap = 0;
 let givenTimberScrap = 0;
+let givenMetalScrap = 0;
 // once the shop counter is open, given totals double as a spendable pool for weapon
 // purchases (see SHOP_ITEMS/purchaseSelectedShopItem below) — they still only ever
 // grow from donations, but a purchase can draw them back down
-const SHOP_UNLOCK_TOTAL = 3000; // sum of all five given totals
+const SHOP_UNLOCK_TOTAL = 3000; // sum of all six given totals
 
 function salvagePanelUnderCrosshair() {
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
@@ -3969,6 +3989,7 @@ function updateCleriSigns() {
   updateTextSprite(salvageCleric.panelSign, `${givenPanelScrap} panel`, { color: '#8aff9e', border: '#4dff88', fontSize: 36 });
   updateTextSprite(salvageCleric.inverterSign, `${givenInverterScrap} inverter`, { color: '#9fd4ff', border: '#4ab0ff', fontSize: 36 });
   updateTextSprite(salvageCleric.rockSign, `${givenRockScrap} rock`, { color: '#d8d8d8', border: '#9a9a9a', fontSize: 36 });
+  updateTextSprite(salvageCleric.metalSign, `${givenMetalScrap} metal`, { color: '#c3c8cc', border: '#9aa0a6', fontSize: 36 });
   updateTextSprite(salvageCleric.timberSign, `${givenTimberScrap} timber`, { color: '#e0b078', border: '#a86a3a', fontSize: 36 });
 }
 
@@ -3981,6 +4002,7 @@ function updateSalvagePickups() {
       else if (t === 'inverter') carriedInverterScrap++;
       else if (t === 'rock') carriedRockScrap++;
       else if (t === 'timber') carriedTimberScrap++;
+      else if (t === 'metal') carriedMetalScrap++;
       else carriedCableScrap++;
       scene.remove(scraps[i]);
       scraps.splice(i, 1);
@@ -3988,7 +4010,7 @@ function updateSalvagePickups() {
   }
   if (!salvageCleric.pos) return;
   const distToCleric = Math.hypot(camera.position.x - salvageCleric.pos.x, camera.position.z - salvageCleric.pos.z);
-  const totalCarried = carriedCableScrap + carriedPanelScrap + carriedInverterScrap + carriedRockScrap + carriedTimberScrap;
+  const totalCarried = carriedCableScrap + carriedPanelScrap + carriedInverterScrap + carriedRockScrap + carriedTimberScrap + carriedMetalScrap;
   if (distToCleric < 3 && totalCarried > 0) {
     const earned = totalCarried * 10;
     credits += earned;
@@ -3997,18 +4019,20 @@ function updateSalvagePickups() {
     givenInverterScrap += carriedInverterScrap;
     givenRockScrap += carriedRockScrap;
     givenTimberScrap += carriedTimberScrap;
+    givenMetalScrap += carriedMetalScrap;
     showToast(`GAVE ${totalCarried} SCRAP → +${earned} CREDITS`);
     carriedCableScrap = 0;
     carriedPanelScrap = 0;
     carriedInverterScrap = 0;
     carriedRockScrap = 0;
     carriedTimberScrap = 0;
+    carriedMetalScrap = 0;
     updateCleriSigns();
     if (!upgrades.waterGunUnlocked && givenCableScrap >= SCRAP_UNLOCK_CABLE && givenPanelScrap >= SCRAP_UNLOCK_PANEL) {
       upgrades.waterGunUnlocked = true;
       showMilestoneBanner('✦', 'WATER GUN UNLOCKED! PRESS 5');
     }
-    const givenTotal = givenCableScrap + givenPanelScrap + givenInverterScrap + givenRockScrap + givenTimberScrap;
+    const givenTotal = givenCableScrap + givenPanelScrap + givenInverterScrap + givenRockScrap + givenTimberScrap + givenMetalScrap;
     if (!upgrades.shopUnlocked && givenTotal >= SHOP_UNLOCK_TOTAL) {
       upgrades.shopUnlocked = true;
       buildShopCounter();
@@ -4126,7 +4150,7 @@ function updateHud() {
   const progressMsg = nm ? `next: ${totalConnected}/${nm.count} connected` : 'all milestones reached';
   let salvageLine = '';
   if (upgrades.salvageUnlocked) {
-    salvageLine = `<br>Scrap carried: <b>${carriedCableScrap}</b> cable / <b>${carriedPanelScrap}</b> panel / <b>${carriedInverterScrap}</b> inverter / <b>${carriedRockScrap}</b> rock / <b>${carriedTimberScrap}</b> timber · Credits: <b>${credits}</b> — give it to the clerics at the Salvage Yard`;
+    salvageLine = `<br>Scrap carried: <b>${carriedCableScrap}</b> cable / <b>${carriedPanelScrap}</b> panel / <b>${carriedInverterScrap}</b> inverter / <b>${carriedRockScrap}</b> rock / <b>${carriedMetalScrap}</b> metal / <b>${carriedTimberScrap}</b> timber · Credits: <b>${credits}</b> — give it to the clerics at the Salvage Yard`;
     if (!upgrades.demoToolUnlocked) {
       salvageLine += `<br><span class="key" style="font-size:11px;">E</span> aim at a rock/timber chunk in a demolished building's rubble to pick up 1 at a time`;
     }
@@ -4383,14 +4407,15 @@ window.__debug = {
   demoDrag: () => demoDrag, setDemoDrag: (v) => { demoDrag = v; }, updateDemoDrag,
   maybeAddDemoToolToShop, maybeUpgradeDemoTool, DEMO_TOOL_ITEM, DEMO_TOOL_SHOP_GATE,
   getScrapTotals: () => ({
-    carried: { cable: carriedCableScrap, panel: carriedPanelScrap, inverter: carriedInverterScrap, rock: carriedRockScrap, timber: carriedTimberScrap },
-    given: { cable: givenCableScrap, panel: givenPanelScrap, inverter: givenInverterScrap, rock: givenRockScrap, timber: givenTimberScrap },
+    carried: { cable: carriedCableScrap, panel: carriedPanelScrap, inverter: carriedInverterScrap, rock: carriedRockScrap, metal: carriedMetalScrap, timber: carriedTimberScrap },
+    given: { cable: givenCableScrap, panel: givenPanelScrap, inverter: givenInverterScrap, rock: givenRockScrap, metal: givenMetalScrap, timber: givenTimberScrap },
   }),
   setGiven: (type, v) => {
     if (type === 'cable') givenCableScrap = v;
     else if (type === 'panel') givenPanelScrap = v;
     else if (type === 'inverter') givenInverterScrap = v;
     else if (type === 'rock') givenRockScrap = v;
+    else if (type === 'metal') givenMetalScrap = v;
     else if (type === 'timber') givenTimberScrap = v;
   },
   batteries, switchboards, streetLamps, placeBattery, placeSwitchboard,

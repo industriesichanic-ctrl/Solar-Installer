@@ -204,11 +204,11 @@ added to over time as things are placed/removed:
    - **Tier 3** (auto-unlocks at 100 given panel + 100 given cable + 100
      given inverter): the RMB drag now also sweeps up loose scrap of *any*
      type, not just rubble — same 100-per-drag cap.
-   Building rubble piles spawn 6 tagged "rock"/"timber" chunks
-   (`salvageableRubble`, alternating type) on top of the pile alongside the
-   plain decorative debris at `finishDemolition` time — this happens
-   regardless of whether the Demo Tool has been bought yet, since `E` needs
-   something to pick up from the very start.
+   Building rubble piles spawn 12 tagged "rock"/"metal"/"timber" chunks
+   (`salvageableRubble`, split evenly across the three types) on top of the
+   pile alongside 10 plain decorative debris chunks at `finishDemolition`
+   time — this happens regardless of whether the Demo Tool has been bought
+   yet, since `E` needs something to pick up from the very start.
 0. **Battery & Switchboard Gun** — auto-unlocked once `totalPowerSystemsActivated`
    (every successful "SOLAR ARRAY ONLINE" event — see `toggleInverterSwitch`,
    cumulative, never decreases) hits `POWER_SYSTEMS_FOR_GUN0` (20). LMB
@@ -306,7 +306,13 @@ manually turn each inverter off (`E`) before it's safe to approach.
   check — buildings still aren't real destructible sub-meshes, "blocks" are
   just pre-computed points + a progress counter).
 - **Collapse**: once every block is lit, `beginBuildingCollapse(b, st)` fires
-  once. It first strips the building's wall/roof/parapet colliders and its
+  once. It first snuffs out every open flame the building's own fire-spread
+  put on it: `st.fires` (every fire object `advanceBuildingFire` spawned,
+  tracked as they're created) gets flipped from `persistent: true` to
+  `persistent: false, dur: 5, t: 5` — reusing the *existing* non-persistent
+  flame/smoke fade in `updateFires` rather than any new code, so each one
+  just moulders/smokes out over 5 seconds instead of burning indefinitely.
+  It then strips the building's wall/roof/parapet colliders and its
   body mesh out of `worldMeshes`/`placementSurfaces` (nothing to walk on or
   raycast against anymore), calls `collapseInstalledEquipment(b)` (below), then
   builds `st.floorGroups` — an ordered list of mesh groups from top to bottom:
@@ -321,10 +327,13 @@ manually turn each inverter off (`E`) before it's safe to approach.
   floor's thickness, and the next floor up starts falling — so the whole
   building visibly pancakes down floor-by-floor rather than shrinking away or
   vanishing all at once. `finishDemolition` runs once the last floor lands:
-  marks `st.rubbleSpawned`, scatters a handful of small decorative
-  `DodecahedronGeometry` debris chunks on top of the pile (also walkable). A
-  fully cabled district really can burn building-to-building and end up as
-  rubble.
+  marks `st.rubbleSpawned`, scatters 10 small decorative `DodecahedronGeometry`
+  debris chunks on top of the pile for bulk (also walkable, not individually
+  salvageable), then 12 more that *are* salvageable — split evenly across
+  `rock` (boulder), `metal` (bent beam), and `timber` (splintered beam),
+  pushed into `salvageableRubble` — the collapsed floors read as a genuinely
+  mixed pile of debris types rather than just rock. A fully cabled district
+  really can burn building-to-building and end up as rubble.
 - `beginBuildingCollapse` calls `collapseInstalledEquipment(b)` *before* the
   floors start falling, which tears down any panels/inverters/cables whose
   position falls within the building's footprint (with a small margin) and
@@ -411,9 +420,9 @@ place the second desk relative to the first without recomputing the layout.
 
 ## Salvage economy
 
-Unlocked at 2000 connected. **Five** separate scrap types, each tracked
+Unlocked at 2000 connected. **Six** separate scrap types, each tracked
 independently (`carried*`/`given*` pairs — `Cable`, `Panel`, `Inverter`,
-`Rock`, `Timber`):
+`Rock`, `Metal`, `Timber`):
 - **Cable scrap** dropped when a cable is removed/destroyed (`destroyCable`
   with `withScrap`), one coil per segment.
 - **Panel scrap** dropped when a panel is salvaged (Cable Router RMB with
@@ -423,25 +432,32 @@ independently (`carried*`/`given*` pairs — `Cable`, `Panel`, `Inverter`,
   building in `collapseInstalledEquipment`. (This didn't exist before the
   weapon shop needed a 5th currency — those code paths previously dropped no
   scrap for the inverter itself, only for its wired cables.)
-- **Rock** and **Timber** scrap only come from the Demo Tool salvaging a
-  tagged rubble chunk on a collapsed building's pile (weapon 8, see above) —
-  there's no other source.
+- **Rock**, **Metal**, and **Timber** scrap only come from a collapsed
+  building's rubble pile — either the Demo Tool (weapon 8, +20 per rubble
+  chunk broken up) or the baseline `E` interact (1 unit at a time, no tool
+  needed) — there's no other source. `finishDemolition` seeds each pile with
+  12 tagged chunks split evenly across all three types (see Collapse above).
 
 `dropScrap(point, type)` gives each type a distinct mesh/material: cable =
 coiled wire (torus), panel = a flat shard (box), inverter = a small dark
-electronics chunk (box), rock = a grey lump (small dodecahedron), timber = a
+electronics chunk (box), rock = a grey lump (small dodecahedron), metal = a
+bent beam (light grey/high-metalness box, `matMetalScrap`), timber = a
 splintered beam (thin brown box, `matTimberScrap`).
 
 Walking within ~1.6m of dropped scrap auto-picks it up into the matching
-`carried*` variable (`updateSalvagePickups`). Walking close (~3m) to
-`salvageCleric.pos` (desk 1, both clerics standing behind it) auto-donates
-everything carried at once: converts to credits (10 each) and adds to the
-matching **given** total (never decrease on their own — see Weapon shop for
-the one thing that *does* spend them back down), shown on the 5-line sign
-board behind the desk (`updateCleriSigns`). Reaching 1000 given cable + 500
-given panel unlocks the Water Gun. Reaching `SHOP_UNLOCK_TOTAL` (3000)
-combined across all five given totals unlocks the Weapon shop (below).
-`credits` are tracked but not yet spent on anything.
+`carried*` variable (`updateSalvagePickups`) — and picking a rubble chunk up
+with the Demo Tool or `E` credits the matching `carried*` variable directly
+via a shared `creditScrap(type, n)` helper (see bug history: this was
+missing a `'metal'` branch when metal was first added, silently crediting
+metal pickups as cable). Walking close (~3m) to `salvageCleric.pos` (desk 1,
+both clerics standing behind it) auto-donates everything carried at once:
+converts to credits (10 each) and adds to the matching **given** total
+(never decrease on their own — see Weapon shop for the one thing that *does*
+spend them back down), shown on the 6-line sign board behind the desk
+(`updateCleriSigns`). Reaching 1000 given cable + 500 given panel unlocks the
+Water Gun. Reaching `SHOP_UNLOCK_TOTAL` (3000) combined across all six given
+totals unlocks the Weapon shop (below). `credits` are tracked but not yet
+spent on anything.
 
 ## Weapon shop (desk 2)
 
@@ -491,6 +507,13 @@ already-owned item both just toast and leave state untouched.
 
 ## Bug history worth knowing (don't reintroduce these)
 
+- **Metal scrap silently crediting as cable**: when the `'metal'` rubble type
+  was added, `creditScrap(type, n)` — the shared helper the Demo Tool and `E`
+  interact both call to award carried scrap — was never given a `'metal'`
+  branch, so it fell through to the `else` (cable) case. Picking up a metal
+  beam incremented `carriedCableScrap` instead of `carriedMetalScrap`.
+  Caught live: picked up a tagged metal chunk and found `carried.cable` at 1
+  with `carried.metal` still 0. Fixed by adding the missing branch.
 - **Battery merges inflating installed kWh**: `removeBatteryFromWorld`
   (called on every battery consumed by a merge) removed the battery from the
   scene/array but never subtracted its capacity from
