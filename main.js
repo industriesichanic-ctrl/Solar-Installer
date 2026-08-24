@@ -7,13 +7,17 @@ import * as THREE from 'three';
 // (see the mapPanel click handler further down), which is simpler and far lower
 // risk than trying to make one page own multiple live worlds.
 const urlParams = new URLSearchParams(location.search);
-const MAP_ID = Number(urlParams.get('map')) === 2 ? 2 : 1;
-// Map 2's world sits at a huge offset from Map 1's (-140..140), rather than Map 1's
-// city being conditionally skipped — Map 1's whole world-build is a large amount of
-// existing, working top-level code that would be risky to wrap in a map check.
-// Building it even in Map 2 mode costs some memory/CPU for a city the player will
-// practically never walk to, which is a known simplification (see NOTES.md).
+const rawMapParam = Number(urlParams.get('map'));
+const MAP_ID = [2, 3, 4].includes(rawMapParam) ? rawMapParam : 1;
+// Every non-city map's world sits at a huge offset from Map 1's (-140..140) and from
+// each other, rather than Map 1's city being conditionally skipped — Map 1's whole
+// world-build is a large amount of existing, working top-level code that would be
+// risky to wrap in a map check. Building it even in Map 2/3/4 mode costs some
+// memory/CPU for a city the player will practically never walk to, which is a known
+// simplification (see NOTES.md).
 const MAP2_ORIGIN = { x: 3000, z: 0 };
+const MAP3_ORIGIN = { x: 6000, z: 0 }; // Swamp
+const MAP4_ORIGIN = { x: 9000, z: 0 }; // Badlands
 
 // touch-primary devices (phones/tablets) get an on-screen control overlay instead of
 // requiring pointer lock + keyboard — everything underneath (movement, look, firing,
@@ -128,11 +132,23 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x8fc7e8);
-scene.fog = new THREE.FogExp2(0x8fc7e8, 0.011);
+// each sandbox map gets its own atmosphere — murky green haze for the Swamp, dusty
+// orange haze for the Badlands, the original sky blue everywhere else
+const MAP_ATMOSPHERE = {
+  1: { sky: 0x8fc7e8, fogDensity: 0.011 },
+  2: { sky: 0x8fc7e8, fogDensity: 0.011 },
+  3: { sky: 0x4a5c42, fogDensity: 0.022 },
+  4: { sky: 0xd8a35a, fogDensity: 0.016 },
+};
+const atmo = MAP_ATMOSPHERE[MAP_ID];
+scene.background = new THREE.Color(atmo.sky);
+scene.fog = new THREE.FogExp2(atmo.sky, atmo.fogDensity);
 
 const camera = new THREE.PerspectiveCamera(74, window.innerWidth / window.innerHeight, 0.05, 400);
-const SPAWN_POS = MAP_ID === 2 ? { x: MAP2_ORIGIN.x, z: MAP2_ORIGIN.z + 6 } : { x: 0, z: 6 };
+const SANDBOX_ORIGINS = { 2: MAP2_ORIGIN, 3: MAP3_ORIGIN, 4: MAP4_ORIGIN };
+const SPAWN_POS = SANDBOX_ORIGINS[MAP_ID]
+  ? { x: SANDBOX_ORIGINS[MAP_ID].x, z: SANDBOX_ORIGINS[MAP_ID].z + 6 }
+  : { x: 0, z: 6 };
 camera.position.set(SPAWN_POS.x, effStandHeight(), SPAWN_POS.z);
 
 window.addEventListener('resize', () => {
@@ -1903,13 +1919,13 @@ document.addEventListener('mousedown', (e) => {
 
   if (currentWeapon === 1) {
     if (e.button === 0) mouseDown = true;
-    // Map 2's weapon 1 is the tree cutter (see fire()) — no RMB action, and
-    // critically no pickUpNearestPanel, which would otherwise let the player
-    // "salvage" the fixed 1MW array anchors right back out of the world
-    if (e.button === 2 && MAP_ID !== 2 && currentJob === 'plumber') {
+    // every sandbox map's weapon 1 is the cutter tool (see fire()) — no RMB action
+    // there, and critically no pickUpNearestPanel, which would otherwise let the
+    // player "salvage" Map 2's fixed 1MW array anchors right back out of the world
+    if (e.button === 2 && MAP_ID === 1 && currentJob === 'plumber') {
       if (unlockedHeatPumpAreaTool) beginHeatPumpAreaDragCandidate();
       else pickUpNearestHeatPump();
-    } else if (e.button === 2 && MAP_ID !== 2 && currentJob !== 'plumber') {
+    } else if (e.button === 2 && MAP_ID === 1 && currentJob !== 'plumber') {
       if (unlockedAreaTool) beginAreaDragCandidate();
       else pickUpNearestPanel();
     }
@@ -3391,10 +3407,11 @@ function pickUpNearestPanel() {
 function fire() {
   if (reloading || fireCooldown > 0) return;
 
-  // Map 2 replaces the Solar Panel Gun's LMB entirely with the tree cutter — see
-  // fireTreeCutter/map2Trees, built only when MAP_ID === 2. Same ammo/cooldown
-  // economy as the normal panel gun, just a different action.
-  if (MAP_ID === 2) {
+  // Every sandbox map (2/3/4) replaces the Solar Panel Gun's LMB entirely with a
+  // cutter tool — see fireTreeCutter/map2Trees, populated by whichever
+  // buildXMap() ran for this MAP_ID. Same ammo/cooldown economy as the normal
+  // panel gun, just a different action.
+  if (MAP_ID !== 1) {
     if (ammo <= 0) { reload(); return; }
     fireCooldown = FIRE_COOLDOWN * upgrades.fireRateMul;
     ammo--;
@@ -3404,8 +3421,8 @@ function fire() {
     return;
   }
 
-  // No job picked at the Job Hut yet — no tools, full stop (Map 2 has no Job Hut,
-  // so it's exempt, handled by the early return above).
+  // No job picked at the Job Hut yet — no tools, full stop (sandbox maps have no
+  // Job Hut, so they're exempt, handled by the early return above).
   if (currentJob === null) return;
 
   // Plumbing job replaces the Solar Panel Gun's LMB with the HP Gun — same
@@ -4868,11 +4885,13 @@ function updateHud() {
     const tier = upgrades.demoToolTier;
     weaponLine = `<b>5: Debris Vacuum Gun</b> (tier ${tier})<br>` +
       `<span class="good">LMB</span> break up a rock/timber/metal chunk in a rubble pile for +20${tier >= 2 ? ` &nbsp; <span class="good">RMB</span> hold + sweep to drag-collect, up to 100/drag` : ''}`;
-  } else if (currentWeapon === 1 && MAP_ID === 2) {
+  } else if (currentWeapon === 1 && MAP_ID !== 1) {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
-    weaponLine = `<b>1: Tree Cutter</b> — ${reloadMsg}<br>` +
-      `<span class="good">LMB</span> aim at a tree to clear it (drops timber scrap) &nbsp; <span class="good">R</span> reload<br>` +
-      `clear the trees shading the array so it isn't blocked`;
+    const cutterName = { 2: 'Tree Cutter', 3: 'Reed Cutter', 4: 'Scrub Cutter' }[MAP_ID] || 'Cutter';
+    const cutterHint = { 2: 'clear the trees shading the array so it isn\'t blocked', 3: 'clear the dead reeds and moss-trees choking the swamp', 4: 'clear the dry scrub scattered across the badlands' }[MAP_ID] || '';
+    weaponLine = `<b>1: ${cutterName}</b> — ${reloadMsg}<br>` +
+      `<span class="good">LMB</span> aim at one to clear it (drops timber scrap) &nbsp; <span class="good">R</span> reload<br>` +
+      cutterHint;
   } else if (currentWeapon === 1 && currentJob === 'plumber') {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
     const hpAreaMsg = unlockedHeatPumpAreaTool
@@ -5157,7 +5176,7 @@ function animate() {
       ghostMesh.visible = false;
       ghostInverterMesh.visible = false;
       updateAreaDragPreview();
-    } else if (currentWeapon === 1 && MAP_ID === 2) {
+    } else if (currentWeapon === 1 && MAP_ID !== 1) {
       ghostMesh.visible = false;
       ghostAreaMesh.visible = false;
       ghostInverterMesh.visible = false;
@@ -6240,13 +6259,13 @@ const MAP2_ARRAY_SECTIONS = 20; // 1MW / 20 = 50kW per anchor
 const MAP2_GOAL_KW = 500;
 let map2GoalReached = false;
 
-function buildCuttableTree(x, z) {
+function buildCuttableTree(x, z, trunkMat = matWood, leafMat = matLeaf) {
   const scale = rand(0.9, 1.6);
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18 * scale, 0.24 * scale, 2.2 * scale, 8), matWood);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18 * scale, 0.24 * scale, 2.2 * scale, 8), trunkMat);
   trunk.position.set(x, 1.1 * scale, z);
   trunk.castShadow = true;
   scene.add(trunk);
-  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.3 * scale, 2.6 * scale, 8), matLeaf);
+  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.3 * scale, 2.6 * scale, 8), leafMat);
   leaves.position.set(x, 2.6 * scale, z);
   leaves.castShadow = true;
   scene.add(leaves);
@@ -6382,6 +6401,106 @@ function buildSolarFarmMap() {
 }
 if (MAP_ID === 2) buildSolarFarmMap();
 
+// ============================================================================
+// Map 3: Swamp and Map 4: Badlands — same lightweight sandbox shape as Map 2 (own
+// origin offset, gun 0 pre-unlocked, weapon 1 replaced by the cutter tool reusing
+// buildCuttableTree/fireTreeCutter/map2Trees), but with no fixed array or goal —
+// pure open terrain to explore and build a self-supplied power system on, just in
+// a distinct biome. Both intentionally skip a Job Hut, exactly like Map 2.
+// ============================================================================
+function buildSwampMap() {
+  upgrades.gun0Unlocked = true;
+  upgrades.switchboardUnlocked = true;
+  const ox = MAP3_ORIGIN.x, oz = MAP3_ORIGIN.z;
+
+  const matMud = new THREE.MeshStandardMaterial({ color: 0x3a3327, roughness: 1.0 });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), matMud);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(ox, 0, oz);
+  ground.receiveShadow = true;
+  ground.userData.isSurface = true;
+  scene.add(ground);
+  groundColliders.push(ground);
+  placementSurfaces.push(ground);
+
+  // scattered murky water pools — flat, slightly sunken, walkable (no swimming
+  // mechanic), just visual/atmosphere
+  const matSwampWater = new THREE.MeshStandardMaterial({ color: 0x2a4a3e, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.88 });
+  for (let i = 0; i < 22; i++) {
+    const px = ox + rand(-220, 220), pz = oz + rand(-220, 220);
+    if (Math.hypot(px - ox, pz - (oz + 6)) < 10) continue; // keep spawn clear
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(rand(4, 11), 16), matSwampWater);
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.set(px, 0.02, pz);
+    scene.add(pool);
+  }
+
+  // dead, mossy trees — same cuttable-tree mechanic as Map 2, just reskinned
+  const matDeadWood = new THREE.MeshStandardMaterial({ color: 0x4a3f30, roughness: 0.95 });
+  const matMoss = new THREE.MeshStandardMaterial({ color: 0x5a6e3c, roughness: 0.9 });
+  for (let i = 0; i < 140; i++) {
+    const tx = ox + rand(-220, 220), tz = oz + rand(-220, 220);
+    if (Math.hypot(tx - ox, tz - (oz + 6)) < 10) continue; // keep spawn clear
+    buildCuttableTree(tx, tz, matDeadWood, matMoss);
+  }
+
+  const sign = makeTextSprite('THE SWAMP', { fontSize: 44, color: '#bcd9a8', border: '#5a7a4a', scale: 0.6 });
+  sign.position.set(ox, 6, oz + 6);
+  scene.add(sign);
+}
+if (MAP_ID === 3) buildSwampMap();
+
+function buildBadlandsMap() {
+  upgrades.gun0Unlocked = true;
+  upgrades.switchboardUnlocked = true;
+  const ox = MAP4_ORIGIN.x, oz = MAP4_ORIGIN.z;
+
+  const matSand = new THREE.MeshStandardMaterial({ color: 0xc78f4f, roughness: 1.0 });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), matSand);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(ox, 0, oz);
+  ground.receiveShadow = true;
+  ground.userData.isSurface = true;
+  scene.add(ground);
+  groundColliders.push(ground);
+  placementSurfaces.push(ground);
+
+  // rock spires / mesas — tall cone-capped cylinders scattered around, walkable
+  // ground colliders and solid wall colliders, same as any other obstacle
+  const matMesa = new THREE.MeshStandardMaterial({ color: 0x8a5a3a, roughness: 0.9 });
+  const matMesaCap = new THREE.MeshStandardMaterial({ color: 0xa8724a, roughness: 0.85 });
+  for (let i = 0; i < 26; i++) {
+    const px = ox + rand(-220, 220), pz = oz + rand(-220, 220);
+    if (Math.hypot(px - ox, pz - (oz + 6)) < 14) continue; // keep spawn clear
+    const h = rand(6, 16), r = rand(2.5, 5.5);
+    const spire = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.7, r, h, 8), matMesa);
+    spire.position.set(px, h / 2, pz);
+    spire.castShadow = true;
+    spire.receiveShadow = true;
+    scene.add(spire);
+    groundColliders.push(spire);
+    addWallBox(px - r, px + r, pz - r, pz + r, 0, h);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.85, r * 0.7, h * 0.15, 8), matMesaCap);
+    cap.position.set(px, h + h * 0.075, pz);
+    cap.castShadow = true;
+    scene.add(cap);
+  }
+
+  // dry scrub — same cuttable mechanic as the swamp's trees/Map 2's trees
+  const matDryWood = new THREE.MeshStandardMaterial({ color: 0x6a5030, roughness: 0.95 });
+  const matDryLeaf = new THREE.MeshStandardMaterial({ color: 0x8a7a3a, roughness: 0.9 });
+  for (let i = 0; i < 90; i++) {
+    const tx = ox + rand(-220, 220), tz = oz + rand(-220, 220);
+    if (Math.hypot(tx - ox, tz - (oz + 6)) < 10) continue; // keep spawn clear
+    buildCuttableTree(tx, tz, matDryWood, matDryLeaf);
+  }
+
+  const sign = makeTextSprite('THE BADLANDS', { fontSize: 44, color: '#ffcf8a', border: '#a85a2a', scale: 0.6 });
+  sign.position.set(ox, 6, oz + 6);
+  scene.add(sign);
+}
+if (MAP_ID === 4) buildBadlandsMap();
+
 animate();
 
 window.__debug = {
@@ -6457,7 +6576,7 @@ window.__debug = {
   toggleMap, drawMap, mapOpen: () => mapOpen, mapZoom: () => mapZoom,
   setMapZoom: (v) => { mapZoom = v; }, mapCanvas,
   movingCars, updateMovingCars, wanderers, updateWanderers, pointOnLoop, LOOP_R, LOOP_PERIM,
-  MAP_ID, MAP2_ORIGIN, map2Trees, fireTreeCutter, computeMap2ProgressKw, checkMap2Goal,
+  MAP_ID, MAP2_ORIGIN, MAP3_ORIGIN, MAP4_ORIGIN, SANDBOX_ORIGINS, map2Trees, fireTreeCutter, computeMap2ProgressKw, checkMap2Goal,
   map2GoalReached: () => map2GoalReached, inverterCapacityKw, MAP2_INVERTER_CAPACITY_KW,
   IS_MOBILE, setPlayState, mobileControls, keysHas: (code) => keys.has(code),
   mouseDownState: () => mouseDown, yawState: () => yaw,

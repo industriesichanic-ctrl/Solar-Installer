@@ -293,6 +293,57 @@ session (the automated check ran with the pointer never locked, so
 playtest to confirm the pancake collapse visually completes the same way
 it does when triggered by fire.
 
+### Map 2 "doesn't load" report — investigated, not reproducible (v20)
+
+Live-tested `?map=2` end to end in a fresh tab: `MAP_ID` reads `2`
+correctly, `camera.position` is at `MAP2_ORIGIN` (`x:3000`), `map2Trees`
+has 124 entries — the Solar Farm genuinely is what loads, not the city.
+Given this project's well-documented stale-tab-caching gotcha (see the
+`matRoad` bug history entry above), this was very likely someone's old
+cached page rather than a real regression — no code change made for it,
+just confirmed working and moved on to the actual request below.
+
+### Two new sandbox maps: Swamp (3) and Badlands (4) — v20
+
+Same lightweight shape as Map 2 (own origin offset in `SANDBOX_ORIGINS`,
+`gun0Unlocked`/`switchboardUnlocked` pre-set, weapon 1 replaced by a cutter
+tool, no Job Hut), not a new economy each — reusing Map 2's scaffold was
+far lower-risk than inventing two new systems from scratch, and keeps the
+"pick a biome, go build a mini power grid there" shape consistent:
+- Every `MAP_ID === 2` check that gated Map 2's *sandbox behavior*
+  (weapon 1 → cutter override in `fire()`, the RMB pickup/area-tool skip
+  in `mousedown`, the HUD title/ghost-preview branches) was widened to
+  `MAP_ID !== 1` (or, for the mousedown skip, inverted to `MAP_ID === 1`)
+  so it automatically covers 3 and 4 too — no per-map duplication needed.
+  Checks that are genuinely Map-2-specific (the fixed 1MW array's
+  `INVERTER_CAPACITY_KW` table override, `computeMap2ProgressKw`/
+  `checkMap2Goal`/the 500kW HUD line) were deliberately left as
+  `MAP_ID === 2` only — Swamp/Badlands have no fixed array or goal.
+- `buildCuttableTree(x, z, trunkMat, leafMat)` picked up two optional
+  material params (defaulting to the original wood/leaf) so the exact same
+  function/array (`map2Trees`) and `fireTreeCutter()` could be reused for
+  all three biomes' cuttable prop, just reskinned — dead mossy trees for
+  the Swamp, dry scrub for the Badlands — rather than writing two more
+  cut-tool implementations.
+- New atmosphere per map: `MAP_ATMOSPHERE` (sky color + fog density) keyed
+  by `MAP_ID`, applied once at `scene.background`/`scene.fog` creation —
+  murky green haze for the Swamp, dusty orange for the Badlands.
+- Swamp (`buildSwampMap`, `MAP3_ORIGIN` at x:6000): dark mud ground, ~22
+  flat semi-transparent water pools scattered around (walkable, no
+  swimming mechanic), 140 dead/mossy cuttable trees.
+- Badlands (`buildBadlandsMap`, `MAP4_ORIGIN` at x:9000): sandy ground, 26
+  rock spire/mesa obstacles (cone-capped cylinders, real ground+wall
+  colliders) plus 90 dry-scrub cuttable trees.
+- `index.html`'s map picker unlocked slots 3/4 with real names/subtitles;
+  no other picker code changed (`mapOption` click handler already builds
+  `?map=${id}` generically for any id).
+
+Verified live in fresh tabs for all of `?map=1/2/3/4`: correct `MAP_ID`,
+correct spawn position at each map's own origin, correct prop counts
+(124/140/90 cuttable trees respectively), city map (1) unaffected, no
+console errors on any of them, and the map picker correctly shows all
+four as unlocked/selectable.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic
