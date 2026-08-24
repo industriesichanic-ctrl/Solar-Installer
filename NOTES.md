@@ -126,6 +126,18 @@ manually turn each inverter off (`E`) before it's safe to approach.
   wall collider and spawns a walkable rubble pile (10 `DodecahedronGeometry`
   chunks pushed into `groundColliders`). A fully cabled district really can
   burn building-to-building and end up as rubble.
+- `finishDemolition` also calls `collapseInstalledEquipment(b)`, which tears
+  down any panels/inverters/cables whose position falls within the building's
+  footprint (with a small margin) and drops a scrap pile on the ground at
+  each one's own `x,z` — so array mounted on a burned-down building ends up
+  as debris at its install spot instead of floating in mid-air once the
+  building mesh is gone.
+- Flame/smoke meshes on a near fire (`buildFireDetail`) no longer
+  re-randomize scale/opacity/position every frame — that was both the
+  visible "flashing" and most of the per-fire per-frame cost. Each fire now
+  holds a fixed pose and only rolls a new one on a random 1–2s timer
+  (`f.flickerT`/`f.flickerInterval` in `updateFires`), like two alternating
+  flame frames and two alternating smoke frames.
 
 ### Performance (fire LOD)
 
