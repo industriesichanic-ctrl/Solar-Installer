@@ -200,6 +200,47 @@ desk at the Job Hut, nothing else reads `tools` anywhere. No new tools,
 meshes, or mechanics — matches "no need to code the other jobs now,"
 just makes the plan visible before it's built.
 
+### Job Hut hot-swap loadout panel (v18)
+
+Replaced the flat toast list of a locked job's planned tools with a real
+3D readout, plus a genuine "aim and hot-swap" mechanic:
+- `jobLoadoutPanel` is a `scene`-space (not camera-space) group repositioned
+  onto whichever desk's tile was just RMB-selected
+  (`jobLoadoutPanel.position/rotation` set from the tile's stored
+  `dx/dz/facing` — `jobTileMeshes` entries now carry those, not just
+  `{mesh, job}`), with up to `MAX_LOADOUT_ROWS` (6) rows stacked vertically
+  above the desk. Being world-space (not HUD-anchored like the gun view
+  models) is what makes "aim at the individual guns" literal — turning your
+  head really does move the crosshair across the stack.
+- Each row = a small icon + a smaller text label (`makeTextSprite` at
+  `fontSize:20, scale:0.16`, vs. the desk name label's `fontSize:26,
+  scale:0.4` — deliberately smaller per the request). For Solar/Plumber
+  (the two coded jobs) the icon is a live `.clone(true)` of that slot's
+  *actual* view-model group (`LOADOUT_SLOT_MODELS`) — so it really does
+  "show what it looks like." The 23 uncoded jobs fall back to
+  `buildGenericToolIcon()`, a generic mini box-and-barrel silhouette, since
+  they have no real mesh yet.
+- **Hot-swap**: `findLoadoutRowUnderCrosshair()` raycasts the visible rows'
+  icon meshes; RMB on one calls `hotSwapSlot`, which writes
+  `loadoutSkins[slotIndex] = { name, iconTemplate }` — keyed to the
+  *player's own currently equipped job*, regardless of which desk's panel
+  is on screen (so you can stand at the Aircon desk and reskin your
+  Plumber slot 1 with the Indoor Unit Gun's look). This is **cosmetic
+  only**: the slot's underlying `fire()`/`mousedown` behavior never
+  changes, just what's rendered in-hand (`customSkinGroup`, a camera-child
+  populated by `refreshEquippedSkin()` cloning the stored `iconTemplate`)
+  and the HUD's bold title (`updateHud` prepends a "hot-swapped skin — same
+  function as before" line when `loadoutSkins[currentWeapon]` is set).
+  `setWeapon()` hides every job's normal view-model group whenever the
+  slot being switched to has a skin, so the reskinned look doesn't get
+  clobbered back to the original mesh.
+- Verified via `window.__debug`: populated the panel for a locked job
+  (Aircon, 6 rows, each with a name + real icon mesh), hot-swapped its
+  first row into Plumber's slot 1, confirmed `loadoutSkins[1]` persists
+  across a `setWeapon` no-op guard (switch away and back), no console
+  errors. Not yet tested with real mouse-look aiming in a live play
+  session.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic

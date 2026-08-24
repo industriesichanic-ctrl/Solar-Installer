@@ -1604,6 +1604,27 @@ mswbGunGroup.position.set(0.22, -0.2, -0.4);
 mswbGunGroup.visible = false;
 camera.add(mswbGunGroup);
 
+// ---------- Hot-swapped loadout skins (Job Hut hot-swap feature) — when a slot has
+// been reskinned with another job's tool icon (cosmetic only, see loadoutSkins below),
+// this is what's actually shown in hand instead of that slot's normal view model ----------
+const customSkinGroup = new THREE.Group();
+customSkinGroup.position.set(0.22, -0.2, -0.4);
+customSkinGroup.visible = false;
+camera.add(customSkinGroup);
+const loadoutSkins = {}; // slotIndex -> { name, iconTemplate: THREE.Object3D }
+function refreshEquippedSkin() {
+  customSkinGroup.clear();
+  const skin = loadoutSkins[currentWeapon];
+  if (!skin) { customSkinGroup.visible = false; return; }
+  const held = skin.iconTemplate.clone(true);
+  held.visible = true;
+  held.position.set(0, 0, 0);
+  held.rotation.set(0, 0, 0);
+  held.scale.setScalar(skin.heldScale || 1);
+  customSkinGroup.add(held);
+  customSkinGroup.visible = true;
+}
+
 // ---------- Placement ghost preview ----------
 const ghostGeo = new THREE.BoxGeometry(PANEL_SIZE, PANEL_THICK, PANEL_SIZE);
 const ghostGeoLarge = new THREE.BoxGeometry(PANEL_SIZE_LARGE, PANEL_THICK, PANEL_SIZE_LARGE);
@@ -1666,6 +1687,14 @@ function setWeapon(w) {
   bulkInverterGunGroup.visible = w === 7;
   demoToolGroup.visible = w === 8;
   gun0Group.visible = w === 0;
+  refreshEquippedSkin();
+  if (loadoutSkins[w]) {
+    // a hot-swapped skin is showing instead — hide whichever normal view model would
+    // have been visible for this slot
+    gunGroup.visible = false; cableGunGroup.visible = false; routerGunGroup.visible = false;
+    inverterGunGroup.visible = false; hpGunGroup.visible = false; pipeGunGroup.visible = false;
+    switchGunGroup.visible = false; acCableGunGroup.visible = false; mswbGunGroup.visible = false;
+  }
   mouseDown = false;
   if (w === 2) cancelCable();
   if (routerGrab) { if (routerGrab.previewLine) scene.remove(routerGrab.previewLine); routerGrab = null; }
@@ -1779,6 +1808,11 @@ document.addEventListener('mousedown', (e) => {
       if (e.button === 0 && selectedShopItem) { purchaseSelectedShopItem(); return; }
     }
   }
+
+  // Hot-swap loadout panel intercept — checked first since its rows float just above
+  // the desk and would otherwise be shadowed by the desk-tile intercept below
+  const rowHit = findLoadoutRowUnderCrosshair();
+  if (rowHit && e.button === 2) { hotSwapSlot(rowHit); return; }
 
   // Job Hut intercept — same pattern as the shop counter above
   const jobHit = findJobTileUnderCrosshair();
@@ -4839,6 +4873,10 @@ function updateHud() {
       `wire batteries → an inverter → a switchboard (Cable Gun) to energize it and light up its building + nearby street lamps`;
   }
 
+  if (loadoutSkins[currentWeapon] && currentJob) {
+    weaponLine = `<b>🔧 ${loadoutSkins[currentWeapon].name}</b> <span class="good">(hot-swapped skin — same function as before)</span><br>` + weaponLine;
+  }
+
   const stars = '★'.repeat(upgrades.goldStars);
   const nm = nextMilestone();
   const progressMsg = nm ? `next: ${totalConnected}/${nm.count} connected` : 'all milestones reached';
@@ -5257,7 +5295,7 @@ function buildJobHut() {
     sprite.position.set(dx, 1.7, dz);
     scene.add(sprite);
 
-    jobTileMeshes.push({ mesh: desk, job });
+    jobTileMeshes.push({ mesh: desk, job, dx, dz, facing });
   });
 }
 buildJobHut();
@@ -5266,30 +5304,123 @@ function findJobTileUnderCrosshair() {
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
   const hits = centerRay.intersectObjects(jobTileMeshes.map((t) => t.mesh), false);
   if (!hits.length || hits[0].distance > 6) return null;
-  const found = jobTileMeshes.find((t) => t.mesh === hits[0].object);
-  return found ? found.job : null;
+  return jobTileMeshes.find((t) => t.mesh === hits[0].object) || null;
 }
-function selectJobTile(job) {
+function selectJobTile(tile) {
+  const job = tile.job;
   selectedJobTile = job;
+  updateJobLoadoutPanel(tile);
   if (!job.unlocked) {
-    // locked jobs show their planned loadout (display-only, per the shared workflow
-    // rule Place -> Connect -> Configure -> Test -> Repair/Clean) so players can see
-    // what's coming without any of it actually being playable yet
-    const toolMsg = job.tools ? job.tools.join(' · ') : '';
-    showToast(`${job.name.toUpperCase()} IS LOCKED — PLANNED LOADOUT: ${toolMsg}`, 5);
+    showToast(`${job.name.toUpperCase()} IS LOCKED — AIM AT A TOOL ABOVE THE DESK AND RMB TO PREVIEW/HOT-SWAP IT`, 4);
     return;
   }
-  showToast(`SELECTED: ${job.name} — LMB TO CONFIRM`);
+  showToast(`SELECTED: ${job.name} — LMB TO CONFIRM, OR RMB A TOOL ABOVE THE DESK TO HOT-SWAP IT`, 3);
 }
 function confirmJobSelection() {
   const job = selectedJobTile;
   selectedJobTile = null;
+  jobLoadoutPanel.visible = false;
   if (!job || !job.unlocked) return;
   if (job.id === currentJob) { showToast('ALREADY YOUR CURRENT JOB'); return; }
   currentJob = job.id;
   currentWeapon = -1; // force setWeapon(1) below to actually run (it no-ops if w === currentWeapon)
   setWeapon(1);
   showMilestoneBanner('🧰', `NOW WORKING AS: ${job.name.toUpperCase()}`);
+}
+
+// ---------- Job Hut hot-swap loadout panel — a small 3D readout above whichever desk
+// is currently selected, one row per tool in that job's loadout (real mini view-model
+// clones for Solar/Plumber, a generic placeholder icon for the 23 uncoded jobs). RMB on
+// a row's icon reskins the matching slot of the player's OWN current job — cosmetic
+// only, the slot's actual fire behavior never changes, per "no need to code the other
+// jobs yet" ----------
+const LOADOUT_SLOT_NAMES = {
+  solar: ['Solar Panel Gun', 'Cable Gun', 'Cable Router', 'Inverter Gun'],
+  plumber: ['HP Gun', 'Pipe Gun', 'Switch', 'AC Cable', 'MSWB'],
+};
+const LOADOUT_SLOT_MODELS = {
+  solar: [gunGroup, cableGunGroup, routerGunGroup, inverterGunGroup],
+  plumber: [hpGunGroup, pipeGunGroup, switchGunGroup, acCableGunGroup, mswbGunGroup],
+};
+function buildGenericToolIcon() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.26), matToolBody);
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.16, 8), matToolBody);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.z = -0.18;
+  g.add(body, barrel);
+  return g;
+}
+const MAX_LOADOUT_ROWS = 6;
+const jobLoadoutPanel = new THREE.Group();
+jobLoadoutPanel.visible = false;
+scene.add(jobLoadoutPanel);
+const loadoutRows = [];
+for (let i = 0; i < MAX_LOADOUT_ROWS; i++) {
+  const row = new THREE.Group();
+  const label = makeTextSprite('', { fontSize: 20, scale: 0.16 });
+  label.position.set(0.3, 0, 0);
+  row.add(label);
+  row.userData.label = label;
+  row.visible = false;
+  jobLoadoutPanel.add(row);
+  loadoutRows.push(row);
+}
+function updateJobLoadoutPanel(tile) {
+  loadoutRows.forEach((row) => {
+    row.visible = false;
+    if (row.userData.iconMesh) { row.remove(row.userData.iconMesh); row.userData.iconMesh = null; }
+    row.userData.toolName = null;
+    row.userData.slotIndex = null;
+  });
+  if (!tile) { jobLoadoutPanel.visible = false; return; }
+  const job = tile.job;
+  const realModels = LOADOUT_SLOT_MODELS[job.id];
+  const names = realModels ? LOADOUT_SLOT_NAMES[job.id] : job.tools;
+  if (!names) { jobLoadoutPanel.visible = false; return; }
+  jobLoadoutPanel.visible = true;
+  jobLoadoutPanel.position.set(tile.dx, 1.95, tile.dz);
+  jobLoadoutPanel.rotation.y = tile.facing;
+  names.forEach((name, i) => {
+    if (i >= MAX_LOADOUT_ROWS) return;
+    const row = loadoutRows[i];
+    row.visible = true;
+    row.position.set(0, -i * 0.24, 0);
+    updateTextSprite(row.userData.label, name, { fontSize: 20, scale: 0.16 });
+    const icon = (realModels && realModels[i]) ? realModels[i].clone(true) : buildGenericToolIcon();
+    icon.visible = true;
+    icon.position.set(-0.15, 0, 0);
+    icon.rotation.set(0, 0, 0);
+    icon.scale.setScalar(0.4);
+    row.add(icon);
+    row.userData.iconMesh = icon;
+    row.userData.toolName = name;
+    row.userData.slotIndex = i + 1;
+  });
+}
+function findLoadoutRowUnderCrosshair() {
+  if (!jobLoadoutPanel.visible) return null;
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const visibleRows = loadoutRows.filter((r) => r.visible && r.userData.iconMesh);
+  const meshes = [];
+  visibleRows.forEach((r) => r.userData.iconMesh.traverse((o) => { if (o.isMesh) meshes.push(o); }));
+  const hits = centerRay.intersectObjects(meshes, false);
+  if (!hits.length || hits[0].distance > 4) return null;
+  const hitMesh = hits[0].object;
+  return visibleRows.find((r) => {
+    let found = false;
+    r.userData.iconMesh.traverse((o) => { if (o === hitMesh) found = true; });
+    return found;
+  }) || null;
+}
+function hotSwapSlot(row) {
+  const slotIndex = row.userData.slotIndex;
+  if (!currentJob) { showToast('PICK YOUR OWN JOB FIRST, THEN HOT-SWAP ITS SLOTS'); return; }
+  const maxSlots = LOADOUT_SLOT_NAMES[currentJob] ? LOADOUT_SLOT_NAMES[currentJob].length : 0;
+  if (slotIndex > maxSlots) { showToast(`YOUR CURRENT JOB ONLY HAS ${maxSlots} SLOTS`); return; }
+  loadoutSkins[slotIndex] = { name: row.userData.toolName, iconTemplate: row.userData.iconMesh };
+  showToast(`SLOT ${slotIndex} NOW SHOWS: ${row.userData.toolName.toUpperCase()} (COSMETIC — FUNCTION UNCHANGED)`, 3);
+  if (slotIndex === currentWeapon) refreshEquippedSkin();
 }
 
 // ---------- Plumbing job toolset ----------
@@ -6069,4 +6200,6 @@ window.__debug = {
   elecSwitches, mswbs, fireSwitch, fireMswb, toggleSwitchUnderCrosshair, toggleMswbUnderCrosshair,
   getSwitchPlacementTarget, isSwitchSpotFree, placeSwitch, getMswbPlacementTarget, isMswbSpotFree,
   placeMswb, isSwitchMswbPowered, isHeatPumpPlumbed, spawnWaterBurst, MAX_TAPS_PER_HEATPUMP,
+  loadoutSkins, hotSwapSlot, findLoadoutRowUnderCrosshair, updateJobLoadoutPanel,
+  jobLoadoutPanel, loadoutRows, refreshEquippedSkin,
 };
