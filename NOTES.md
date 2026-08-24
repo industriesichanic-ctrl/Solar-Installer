@@ -121,7 +121,10 @@ added to over time as things are placed/removed:
    *selects* a big unit (gold outline), and selecting 3 same-tier units
    anywhere combines them (10 → 20 → 50kW), regardless of adjacency. Each
    inverter shows a floating sign with its kW rating and a running
-   kWh-produced counter. `E` toggles a wired inverter's power switch.
+   kWh-produced counter. `E` toggles a wired inverter's power switch — or, if
+   aiming at a tagged rock/timber rubble chunk instead, picks up 1 unit of it
+   (`handleInteractKey` checks rubble first, falls back to
+   `toggleInverterSwitch`; see Demo Tool below for the rest of that chain).
 5. **Water Gun** — unlocked by donating 1000 cable-scrap + 500 panel-scrap
    to the salvage cleric (see Progression/Salvage). Hold left-click to
    spray. See the Fire section for what spraying actually does — it's a
@@ -143,14 +146,29 @@ added to over time as things are placed/removed:
    inverter directly onto a wall (`placeInverter(point, normal, 1)`),
    skipping the normal grind of placing 3 Tier-0 units and waiting for them
    to auto-merge.
-8. **Demo Tool** — auto-unlocked (not purchased) the first time any building
-   fully collapses (`finishDemolition`). Building rubble piles now spawn 6
-   tagged "rock"/"timber" chunks (`salvageableRubble`, alternating type) on
-   top of the pile alongside the plain decorative debris; LMB aims at one
-   within 8m and converts it into carryable scrap at that spot
-   (`fireDemoTool` → `dropScrap(pos, chunk.type)`), same auto-pickup-by-
-   walking-near-it as any other scrap. This is the only source of rock/timber
-   scrap — they can't be picked up straight off a rubble pile without the tool.
+8. **Demo Tool** — a shop purchase, gated in two layers (see Weapon shop
+   below): it only appears for sale once 100 given rock + 100 given timber
+   are on hand, and then costs 200/200 to actually buy. Before you own it,
+   rubble is only collectible one unit at a time with the baseline `E`
+   interact (`handleInteractKey`) — no weapon needed. Once bought
+   (`upgrades.demoToolUnlocked`, `upgrades.demoToolTier = 1`):
+   - **Tier 1**: LMB breaks up one rubble chunk under the crosshair for +20
+     of its type at once (`fireDemoTool` → `harvestRubbleChunk(idx, 20)`).
+   - **Tier 2** (auto-unlocks at 500 given rock + 500 given timber, checked
+     in `maybeUpgradeDemoTool`): LMB can now also aim at an already-dropped
+     loose scrap pickup (cable/panel/inverter/rock/timber, anything in the
+     `scraps` array) and pick it up directly, one unit, instead of only
+     working on rubble; RMB held + swept across a rubble field
+     "drag-collects" (`demoDrag`/`updateDemoDrag`, ticks every 0.12s) rubble
+     chunks one at a time up to 100 per drag session.
+   - **Tier 3** (auto-unlocks at 100 given panel + 100 given cable + 100
+     given inverter): the RMB drag now also sweeps up loose scrap of *any*
+     type, not just rubble — same 100-per-drag cap.
+   Building rubble piles spawn 6 tagged "rock"/"timber" chunks
+   (`salvageableRubble`, alternating type) on top of the pile alongside the
+   plain decorative debris at `finishDemolition` time — this happens
+   regardless of whether the Demo Tool has been bought yet, since `E` needs
+   something to pick up from the very start.
 
 ## Wattage & connectivity
 
@@ -349,10 +367,15 @@ combined across all five given totals unlocks the Weapon shop (below).
 A second counter, lazily built by `buildShopCounter()` the first donation
 that pushes the combined given-total past `SHOP_UNLOCK_TOTAL` — mirrors the
 delivery truck's lazy-spawn pattern. Sits beside desk 1 (`SALVAGE_YARD.deskX
-+ standHalfW * 0.55`), staffed by 2 more clerics, selling the items in
-`SHOP_ITEMS` (currently weapon slots 6 and 7 — Panel Repair Tool and Bulk
-Inverter Gun) — each a small prop mesh on the counter with a floating
-name+price tag (`costLine`).
++ standHalfW * 0.55`), staffed by 2 more clerics. `SHOP_ITEMS` (Panel Repair
+Tool, slot 6; Bulk Inverter Gun, slot 7) are on the counter from the moment
+it's built. The **Demo Tool** (`DEMO_TOOL_ITEM`, slot 8) is *not* in
+`SHOP_ITEMS` — it's added dynamically by `maybeAddDemoToolToShop()`, called
+after every donation, once `DEMO_TOOL_SHOP_GATE` (100 given rock + 100 given
+timber) is met; if the shop counter hasn't opened yet via
+`SHOP_UNLOCK_TOTAL`, hitting this gate opens it early just to list the Demo
+Tool. Every item (fixed or dynamic) is a small prop mesh with a floating
+name+price tag (`addShopItemProp`, `costLine`).
 
 Purchase flow is a global mousedown intercept, not a per-weapon action —
 `findShopItemUnderCrosshair()` runs before the normal weapon-specific
@@ -362,8 +385,11 @@ whatever weapon is currently equipped. RMB → `selectShopItem` (stores
 `selectedShopItem`, shows the cost in a toast). LMB with something selected
 → `purchaseSelectedShopItem`: checks all 5 given totals meet the item's cost,
 subtracts them (spending the given pool, not the carried one), sets
-`upgrades.weapon{N}Unlocked`, and auto-equips the new weapon. Insufficient
-funds or an already-owned item both just toast and leave state untouched.
+`upgrades.weapon{N}Unlocked` (or, for slot 8 specifically,
+`upgrades.demoToolUnlocked` + `upgrades.demoToolTier = 1` — the Demo Tool
+doesn't follow the generic `weapon{N}Unlocked` naming since it also needs a
+tier), and auto-equips the new weapon. Insufficient funds or an
+already-owned item both just toast and leave state untouched.
 
 ## Known simplifications / open threads
 

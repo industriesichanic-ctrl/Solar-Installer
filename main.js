@@ -76,7 +76,7 @@ const upgrades = {
   sprintMul: 1, jumpMul: 1, heightMul: 1, magBonus: 0, reloadMul: 1, fireRateMul: 1,
   largePanelUnlocked: false, salvageUnlocked: false, buildingJumpUnlocked: false, goldStars: 0, waterGunUnlocked: false,
   powderUnlocked: false, blockPlacementUnlocked: false, deliveryUnlocked: false,
-  shopUnlocked: false, demoToolUnlocked: false, weapon6Unlocked: false, weapon7Unlocked: false,
+  shopUnlocked: false, demoToolUnlocked: false, demoToolTier: 0, weapon6Unlocked: false, weapon7Unlocked: false,
 };
 function effStandHeight() { return EYE_HEIGHT_STAND * upgrades.heightMul; }
 function effCrouchHeight() { return EYE_HEIGHT_CROUCH * upgrades.heightMul; }
@@ -874,6 +874,10 @@ const SHOP_ITEMS = [
   { slot: 6, name: 'Panel Repair Tool', cost: { cable: 30, panel: 30, inverter: 5, rock: 10, timber: 10 } },
   { slot: 7, name: 'Bulk Inverter Gun', cost: { cable: 50, panel: 20, inverter: 15, rock: 20, timber: 20 } },
 ];
+// the Demo Tool only appears for sale once 100 rock + 100 timber have been given —
+// it isn't in SHOP_ITEMS from the start, see maybeAddDemoToolToShop below
+const DEMO_TOOL_ITEM = { slot: 8, name: 'Demo Tool', cost: { cable: 0, panel: 0, inverter: 0, rock: 200, timber: 200 } };
+const DEMO_TOOL_SHOP_GATE = { rock: 100, timber: 100 }; // given totals needed before it's even listed
 let selectedShopItem = null;
 const shopItemMeshes = []; // { mesh, item }
 
@@ -881,10 +885,35 @@ function costLine(cost) {
   return `${cost.cable} cable / ${cost.panel} panel / ${cost.inverter} inv / ${cost.rock} rock / ${cost.timber} timber`;
 }
 
+// adds one shop item's prop + price tag at counter slot index i; used both for the
+// two fixed SHOP_ITEMS at build time and for the Demo Tool once it's unlocked later
+function addShopItemProp(item, i, shopDeskX, deskZ) {
+  const gx = shopDeskX - 0.8 + i * 1.6;
+  const colorBySlot = { 6: 0x8aff9e, 7: 0x9fd4ff, 8: 0xd8a04a };
+  const propMat = new THREE.MeshStandardMaterial({ color: colorBySlot[item.slot] || 0xcccccc, roughness: 0.4, metalness: 0.5 });
+  const prop = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.7), propMat);
+  prop.position.set(gx, 1.08, deskZ);
+  prop.rotation.y = Math.PI / 2;
+  prop.castShadow = true;
+  scene.add(prop);
+  prop.userData.shopItem = item;
+  shopItemMeshes.push({ mesh: prop, item });
+
+  const nameTag = makeTextSprite(item.name, { fontSize: 34, color: '#ffd54a', border: '#ff9a4d', scale: 0.4 });
+  nameTag.position.set(gx, 1.85, deskZ);
+  scene.add(nameTag);
+  const costTag = makeTextSprite(costLine(item.cost), { fontSize: 24, color: '#e8e8e8', border: '#9a9a9a', scale: 0.4 });
+  costTag.position.set(gx, 1.55, deskZ);
+  scene.add(costTag);
+  item.tag = nameTag;
+}
+
 function buildShopCounter() {
   if (shopItemMeshes.length) return; // already built
   const { deskX, deskZ, clericZ, standHalfW } = SALVAGE_YARD;
   const shopDeskX = deskX + standHalfW * 0.55;
+  SALVAGE_YARD.shopDeskX = shopDeskX;
+  SALVAGE_YARD.shopDeskZ = deskZ;
 
   const deskMat = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.6, metalness: 0.3 });
   const desk = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.0, 0.9), deskMat);
@@ -898,25 +927,17 @@ function buildShopCounter() {
   buildPerson(shopDeskX - 0.7, clericZ, Math.PI, 'stand');
   buildPerson(shopDeskX + 0.7, clericZ, Math.PI, 'talk');
 
-  SHOP_ITEMS.forEach((item, i) => {
-    const gx = shopDeskX - 0.8 + i * 1.6;
-    const propMat = new THREE.MeshStandardMaterial({ color: item.slot === 6 ? 0x8aff9e : 0x9fd4ff, roughness: 0.4, metalness: 0.5 });
-    const prop = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.7), propMat);
-    prop.position.set(gx, 1.08, deskZ);
-    prop.rotation.y = Math.PI / 2;
-    prop.castShadow = true;
-    scene.add(prop);
-    prop.userData.shopItem = item;
-    shopItemMeshes.push({ mesh: prop, item });
+  SHOP_ITEMS.forEach((item, i) => addShopItemProp(item, i, shopDeskX, deskZ));
+}
 
-    const nameTag = makeTextSprite(item.name, { fontSize: 34, color: '#ffd54a', border: '#ff9a4d', scale: 0.4 });
-    nameTag.position.set(gx, 1.85, deskZ);
-    scene.add(nameTag);
-    const costTag = makeTextSprite(costLine(item.cost), { fontSize: 24, color: '#e8e8e8', border: '#9a9a9a', scale: 0.4 });
-    costTag.position.set(gx, 1.55, deskZ);
-    scene.add(costTag);
-    item.tag = nameTag;
-  });
+// called after every donation — lists the Demo Tool for sale once the gate is met,
+// building the shop counter early if it hasn't opened via SHOP_UNLOCK_TOTAL yet
+function maybeAddDemoToolToShop() {
+  if (shopItemMeshes.some((s) => s.item.slot === 8)) return; // already listed
+  if (givenRockScrap < DEMO_TOOL_SHOP_GATE.rock || givenTimberScrap < DEMO_TOOL_SHOP_GATE.timber) return;
+  if (!upgrades.shopUnlocked) { upgrades.shopUnlocked = true; buildShopCounter(); }
+  addShopItemProp(DEMO_TOOL_ITEM, SHOP_ITEMS.length, SALVAGE_YARD.shopDeskX, SALVAGE_YARD.shopDeskZ);
+  showMilestoneBanner('🔨', 'DEMO TOOL NOW FOR SALE AT THE SALVAGE YARD WEAPON SHOP');
 }
 
 function findShopItemUnderCrosshair() {
@@ -935,7 +956,7 @@ function selectShopItem(item) {
 function purchaseSelectedShopItem() {
   const item = selectedShopItem;
   if (!item) return;
-  const unlockedKey = `weapon${item.slot}Unlocked`;
+  const unlockedKey = item.slot === 8 ? 'demoToolUnlocked' : `weapon${item.slot}Unlocked`;
   if (upgrades[unlockedKey]) { showToast('ALREADY OWNED'); return; }
   const c = item.cost;
   if (givenCableScrap < c.cable || givenPanelScrap < c.panel || givenInverterScrap < c.inverter ||
@@ -948,11 +969,25 @@ function purchaseSelectedShopItem() {
   givenInverterScrap -= c.inverter;
   givenRockScrap -= c.rock;
   givenTimberScrap -= c.timber;
-  upgrades[unlockedKey] = true;
+  if (item.slot === 8) { upgrades.demoToolUnlocked = true; upgrades.demoToolTier = 1; }
+  else upgrades[unlockedKey] = true;
   updateCleriSigns();
   selectedShopItem = null;
   showMilestoneBanner('🔫', `${item.name.toUpperCase()} PURCHASED — PRESS ${item.slot}`);
   setWeapon(item.slot);
+}
+
+// Demo Tool tier-ups, checked after every donation alongside maybeAddDemoToolToShop
+function maybeUpgradeDemoTool() {
+  if (!upgrades.demoToolUnlocked) return;
+  if (upgrades.demoToolTier === 1 && givenRockScrap >= 500 && givenTimberScrap >= 500) {
+    upgrades.demoToolTier = 2;
+    showMilestoneBanner('🔨', 'DEMO TOOL UPGRADED — RMB DRAG-COLLECTS RUBBLE (100/drag), LMB ALSO PICKS UP LOOSE SCRAP');
+  }
+  if (upgrades.demoToolTier === 2 && givenPanelScrap >= 100 && givenCableScrap >= 100 && givenInverterScrap >= 100) {
+    upgrades.demoToolTier = 3;
+    showMilestoneBanner('🔨', 'DEMO TOOL UPGRADED — RMB DRAG NOW COLLECTS ANY SALVAGE (100/drag)');
+  }
 }
 
 // ---------- Cable-raycast target list — snapshot of every solid mesh built so far
@@ -1194,7 +1229,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.code === 'Digit8') {
     if (upgrades.demoToolUnlocked) setWeapon(8);
-    else showToast('DEMO TOOL LOCKED — DEMOLISH A BUILDING WITH FIRE FIRST');
+    else showToast('DEMO TOOL LOCKED — BUY IT AT THE SALVAGE YARD WEAPON SHOP (100 GIVEN ROCK + TIMBER TO UNLOCK IT FOR SALE)');
   }
   if (e.code === 'KeyX' && upgrades.largePanelUnlocked && currentWeapon === 1) {
     selectedPanelSize = selectedPanelSize === 'small' ? 'large' : 'small';
@@ -1204,7 +1239,7 @@ document.addEventListener('keydown', (e) => {
     blockPlaceMode = !blockPlaceMode;
     showToast(blockPlaceMode ? `BLOCK MODE: LMB PLACES ${BLOCK_PLACE_SIZE * BLOCK_PLACE_SIZE} PANELS` : 'SINGLE PANEL MODE');
   }
-  if (e.code === 'KeyE') toggleInverterSwitch();
+  if (e.code === 'KeyE') handleInteractKey();
 });
 document.addEventListener('keyup', (e) => keys.delete(e.code));
 
@@ -1248,6 +1283,7 @@ document.addEventListener('mousedown', (e) => {
     if (e.button === 0) fireBulkInverter();
   } else if (currentWeapon === 8) {
     if (e.button === 0) fireDemoTool();
+    if (e.button === 2 && upgrades.demoToolTier >= 2) demoDrag = { collected: 0, tick: 0 };
   }
 });
 document.addEventListener('mouseup', (e) => {
@@ -1258,6 +1294,7 @@ document.addEventListener('mouseup', (e) => {
   if (e.button === 2) {
     rmbDown = false;
     if (currentWeapon === 1 && unlockedAreaTool) endAreaDrag();
+    if (currentWeapon === 8 && demoDrag) { showToast(`DRAG COLLECTED ${demoDrag.collected} UNITS`); demoDrag = null; }
   }
 });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1732,25 +1769,109 @@ function firePanelRepair() {
   showToast('PANEL REPAIRED');
 }
 
-// ---------- Weapon 8: Demo Tool (auto-unlocked on a building's first full collapse) —
-// aim at a tagged rock/timber rubble chunk and fire to convert it into carryable scrap ----------
+// ---------- Weapon 8: Demo Tool — a shop purchase (gated on 100 given rock + 100
+// given timber even appearing for sale; costs 200/200 to actually buy), with 3 tiers
+// unlocked automatically by further donations after purchase:
+//   tier 1 (just bought): LMB breaks up one rubble chunk for 20 rock/timber at once
+//   tier 2 (500 given rock + 500 given timber): RMB drag-collects rubble, up to 100
+//     units per drag; LMB can also single-pick-up loose cable/panel/inverter scrap
+//   tier 3 (100 given panel + 100 given cable + 100 given inverter): RMB drag now
+//     collects ANY loose salvage (all 5 types), still up to 100 units per drag
+// ---------------------------------------------------------------------------------
+function creditScrap(type, n) {
+  if (type === 'panel') carriedPanelScrap += n;
+  else if (type === 'inverter') carriedInverterScrap += n;
+  else if (type === 'rock') carriedRockScrap += n;
+  else if (type === 'timber') carriedTimberScrap += n;
+  else carriedCableScrap += n;
+}
+
+// removes one tagged rubble chunk and credits n units of its scrap type
+function harvestRubbleChunk(idx, n) {
+  const chunk = salvageableRubble[idx];
+  scene.remove(chunk.mesh);
+  const gi = groundColliders.indexOf(chunk.mesh);
+  if (gi >= 0) groundColliders.splice(gi, 1);
+  salvageableRubble.splice(idx, 1);
+  creditScrap(chunk.type, n);
+  return chunk.type;
+}
+
+// picks up one already-dropped scrap pickup (cable/panel/inverter/rock/timber)
+function harvestScrapPickup(idx) {
+  const s = scraps[idx];
+  const type = s.userData.scrapType;
+  scene.remove(s);
+  scraps.splice(idx, 1);
+  creditScrap(type, 1);
+  return type;
+}
+
+// baseline interaction, no tool required — aim at a rock/timber rubble chunk and
+// press E to pick up exactly one unit; falls back to the normal inverter-switch
+// interact if nothing salvageable is under the crosshair
+function handleInteractKey() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(salvageableRubble.map((r) => r.mesh), false);
+  if (hits.length && hits[0].distance <= 6) {
+    const idx = salvageableRubble.findIndex((r) => r.mesh === hits[0].object);
+    if (idx >= 0) {
+      const type = harvestRubbleChunk(idx, 1);
+      showToast(`PICKED UP 1 ${type.toUpperCase()}`);
+      return;
+    }
+  }
+  toggleInverterSwitch();
+}
+
 let demoToolCooldown = 0;
 function fireDemoTool() {
   if (demoToolCooldown > 0) return;
   demoToolCooldown = 0.3;
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+
+  // tier 2+: a loose scrap pile under the crosshair gets picked up directly, one unit
+  if (upgrades.demoToolTier >= 2) {
+    const scrapHits = centerRay.intersectObjects(scraps, false);
+    if (scrapHits.length && scrapHits[0].distance <= 6) {
+      const idx = scraps.indexOf(scrapHits[0].object);
+      if (idx >= 0) {
+        const type = harvestScrapPickup(idx);
+        showToast(`PICKED UP 1 ${type.toUpperCase()}`);
+        return;
+      }
+    }
+  }
+
   const hits = centerRay.intersectObjects(salvageableRubble.map((r) => r.mesh), false);
   if (!hits.length || hits[0].distance > 8) { showToast('AIM AT A ROCK/TIMBER CHUNK IN A RUBBLE PILE'); return; }
   const idx = salvageableRubble.findIndex((r) => r.mesh === hits[0].object);
   if (idx < 0) return;
-  const chunk = salvageableRubble[idx];
-  const pos = chunk.mesh.position.clone();
-  scene.remove(chunk.mesh);
-  const gi = groundColliders.indexOf(chunk.mesh);
-  if (gi >= 0) groundColliders.splice(gi, 1);
-  salvageableRubble.splice(idx, 1);
-  dropScrap(pos, chunk.type);
-  showToast(`SALVAGED ${chunk.type.toUpperCase()}`);
+  const type = harvestRubbleChunk(idx, 20);
+  showToast(`BROKE UP RUBBLE — +20 ${type.toUpperCase()}`);
+}
+
+// tier 2+: RMB "drag" (held, swept around with the crosshair) vacuums up nearby
+// matching items — rubble only at tier 2, any loose scrap too at tier 3 — up to 100
+// units in one drag session
+let demoDrag = null; // { collected, tick }
+function updateDemoDrag(dt) {
+  if (!demoDrag) return;
+  demoDrag.tick -= dt;
+  if (demoDrag.tick > 0) return;
+  demoDrag.tick = 0.12;
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const candidates = salvageableRubble.map((r) => r.mesh).concat(upgrades.demoToolTier >= 3 ? scraps : []);
+  const hits = centerRay.intersectObjects(candidates, false);
+  if (!hits.length || hits[0].distance > 8) return;
+  const obj = hits[0].object;
+  const rubbleIdx = salvageableRubble.findIndex((r) => r.mesh === obj);
+  if (rubbleIdx >= 0) { harvestRubbleChunk(rubbleIdx, 1); demoDrag.collected++; }
+  else {
+    const scrapIdx = scraps.indexOf(obj);
+    if (scrapIdx >= 0) { harvestScrapPickup(scrapIdx); demoDrag.collected++; }
+  }
+  if (demoDrag.collected >= 100) { showToast('DRAG COLLECT CAP REACHED (100)'); demoDrag = null; }
 }
 
 function findInverterUnderCrosshair() {
@@ -2880,10 +3001,9 @@ function finishDemolition(b, st) {
     groundColliders.push(mesh);
     salvageableRubble.push({ mesh, type });
   }
-  if (!upgrades.demoToolUnlocked) {
-    upgrades.demoToolUnlocked = true;
-    showMilestoneBanner('🔨', 'DEMO TOOL UNLOCKED! PRESS 8 — SALVAGE ROCK/TIMBER FROM RUBBLE PILES');
-  }
+  // no auto-unlock here anymore — rock/timber start out only collectible one at a
+  // time with E (see handleInteractKey); the Demo Tool itself is a shop purchase
+  // gated on 100 given rock + 100 given timber (see maybeUnlockDemoToolShopItem)
 }
 
 // per-frame: whichever floor is currently falling accelerates under gravity until its
@@ -3399,6 +3519,8 @@ function updateSalvagePickups() {
       buildShopCounter();
       showMilestoneBanner('🛒', 'WEAPON SHOP OPEN — SECOND COUNTER AT THE SALVAGE YARD');
     }
+    maybeAddDemoToolToShop();
+    maybeUpgradeDemoTool();
   }
 }
 
@@ -3487,8 +3609,14 @@ function updateHud() {
     weaponLine = `<b>7: Bulk Inverter Gun</b><br>` +
       `<span class="good">LMB</span> fire onto a wall to place a Tier 1 (10kW) inverter directly (snaps to grid)`;
   } else if (currentWeapon === 8) {
-    weaponLine = `<b>8: Demo Tool</b><br>` +
-      `<span class="good">LMB</span> aim at a rock/timber chunk in a building's rubble pile to salvage it`;
+    const tier = upgrades.demoToolTier;
+    const tierMsg = tier >= 3
+      ? `<span class="good">RMB</span> hold + sweep to drag-collect <b>any</b> loose salvage, up to 100/drag`
+      : tier >= 2
+        ? `<span class="good">LMB</span> also picks up loose cable/panel/inverter scrap directly &nbsp; <span class="good">RMB</span> hold + sweep to drag-collect rubble, up to 100/drag`
+        : `next tier at 500 given rock + 500 given timber`;
+    weaponLine = `<b>8: Demo Tool</b> (tier ${tier})<br>` +
+      `<span class="good">LMB</span> break up a rock/timber rubble chunk for +20<br>${tierMsg}`;
   }
 
   const stars = '★'.repeat(upgrades.goldStars);
@@ -3497,6 +3625,9 @@ function updateHud() {
   let salvageLine = '';
   if (upgrades.salvageUnlocked) {
     salvageLine = `<br>Scrap carried: <b>${carriedCableScrap}</b> cable / <b>${carriedPanelScrap}</b> panel / <b>${carriedInverterScrap}</b> inverter / <b>${carriedRockScrap}</b> rock / <b>${carriedTimberScrap}</b> timber · Credits: <b>${credits}</b> — give it to the clerics at the Salvage Yard`;
+    if (!upgrades.demoToolUnlocked) {
+      salvageLine += `<br><span class="key" style="font-size:11px;">E</span> aim at a rock/timber chunk in a demolished building's rubble to pick up 1 at a time`;
+    }
     if (!upgrades.waterGunUnlocked) {
       salvageLine += `<br>Water Gun: <b>${Math.min(givenCableScrap, SCRAP_UNLOCK_CABLE)}/${SCRAP_UNLOCK_CABLE}</b> cable, <b>${Math.min(givenPanelScrap, SCRAP_UNLOCK_PANEL)}/${SCRAP_UNLOCK_PANEL}</b> panel given`;
     }
@@ -3533,6 +3664,7 @@ function animate() {
   if (bulkInverterCooldown > 0) bulkInverterCooldown -= dt;
   if (repairCooldown > 0) repairCooldown -= dt;
   if (demoToolCooldown > 0) demoToolCooldown -= dt;
+  updateDemoDrag(dt);
   updateElectricalSparks(dt);
   updateInverterProduction(dt);
   updateInverterSignFlash(dt);
@@ -3742,6 +3874,9 @@ window.__debug = {
   findShopItemUnderCrosshair, selectShopItem, purchaseSelectedShopItem,
   selectedShopItem: () => selectedShopItem, shopItemMeshes,
   firePanelRepair, fireBulkInverter, fireDemoTool, salvageableRubble,
+  handleInteractKey, harvestRubbleChunk, harvestScrapPickup, creditScrap,
+  demoDrag: () => demoDrag, setDemoDrag: (v) => { demoDrag = v; }, updateDemoDrag,
+  maybeAddDemoToolToShop, maybeUpgradeDemoTool, DEMO_TOOL_ITEM, DEMO_TOOL_SHOP_GATE,
   getScrapTotals: () => ({
     carried: { cable: carriedCableScrap, panel: carriedPanelScrap, inverter: carriedInverterScrap, rock: carriedRockScrap, timber: carriedTimberScrap },
     given: { cable: givenCableScrap, panel: givenPanelScrap, inverter: givenInverterScrap, rock: givenRockScrap, timber: givenTimberScrap },
