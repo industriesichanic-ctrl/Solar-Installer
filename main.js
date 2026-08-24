@@ -2166,44 +2166,63 @@ function igniteObject(type, obj) {
 // ---------- Building fire + gradual collapse ----------
 // A burning array's fire ticks every 15s: any directly cable-linked object catches
 // instantly (a "whole nearby array" bridges in one tick), while the BUILDING it's
-// mounted on only advances 2 of its (abstracted) 10 fire "blocks" per tick — several
-// ticks are needed before the whole building is alight. Once fully engulfed it
-// collapses over time into a rubble pile.
-const buildingFireState = new Map(); // buildingBox -> { burningBlocks, totalBlocks, demolishing, demolishTimer, rubbleSpawned }
+// mounted on lights 2 more of its pre-mapped wall/roof fire blocks per tick — several
+// ticks are needed before the whole building is alight. Once fully engulfed it then
+// disappears in visible steps, one every 15s, ending as a rubble pile.
+const buildingFireState = new Map(); // buildingBox -> { blocks, litCount, demolishing, demolishTimer, demolishStep, rubbleSpawned }
 const SPREAD_INTERVAL = 15;
-const BUILDING_TOTAL_BLOCKS = 10;
 const BUILDING_BLOCKS_PER_TICK = 2;
-const DEMOLISH_DURATION = 14;
+const DEMOLISH_STEPS = 6; // building disappears over DEMOLISH_STEPS * SPREAD_INTERVAL seconds
+
+// evenly-spaced points across all 4 walls + the roof, sized roughly like a panel's
+// footprint apart — this is what actually lights up tick by tick, not random spots
+function computeBuildingBlocks(b) {
+  const blocks = [];
+  const midY = Math.max(1.5, b.topY * 0.5);
+  const wallRowY = [b.topY * 0.25, b.topY * 0.6].map((y) => Math.max(1.2, y));
+  const spots = [0.2, 0.4, 0.6, 0.8];
+  wallRowY.forEach((y) => {
+    spots.forEach((t) => {
+      blocks.push({ x: b.minX, y, z: b.minZ + (b.maxZ - b.minZ) * t });
+      blocks.push({ x: b.maxX, y, z: b.minZ + (b.maxZ - b.minZ) * t });
+      blocks.push({ x: b.minX + (b.maxX - b.minX) * t, y, z: b.minZ });
+      blocks.push({ x: b.minX + (b.maxX - b.minX) * t, y, z: b.maxZ });
+    });
+  });
+  const roofY = b.topY + 0.6;
+  [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75], [0.5, 0.5]].forEach(([tx, tz]) => {
+    blocks.push({ x: b.minX + (b.maxX - b.minX) * tx, y: roofY, z: b.minZ + (b.maxZ - b.minZ) * tz });
+  });
+  // shuffle so the lit order doesn't always march the same predictable direction
+  for (let i = blocks.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
+  }
+  return blocks;
+}
 
 function getBuildingFireState(b) {
   let st = buildingFireState.get(b);
   if (!st) {
-    st = { burningBlocks: 0, totalBlocks: BUILDING_TOTAL_BLOCKS, demolishing: false, demolishTimer: 0, rubbleSpawned: false };
+    st = { blocks: computeBuildingBlocks(b), litCount: 0, demolishing: false, demolishTimer: 0, demolishStep: 0, rubbleSpawned: false };
     buildingFireState.set(b, st);
   }
   return st;
 }
 
-function spawnBuildingBlockFire(b) {
-  const wallChoice = Math.floor(Math.random() * 4);
-  const t = Math.random();
-  let x, z;
-  if (wallChoice === 0) { x = b.minX; z = b.minZ + (b.maxZ - b.minZ) * t; }
-  else if (wallChoice === 1) { x = b.maxX; z = b.minZ + (b.maxZ - b.minZ) * t; }
-  else if (wallChoice === 2) { x = b.minX + (b.maxX - b.minX) * t; z = b.minZ; }
-  else { x = b.minX + (b.maxX - b.minX) * t; z = b.maxZ; }
-  const y = rand(1, Math.max(2, b.topY - 1));
-  spawnFireEffect(new THREE.Vector3(x, y, z), true);
-}
-
 function advanceBuildingFire(b) {
   const st = getBuildingFireState(b);
   if (st.demolishing || st.rubbleSpawned) return;
-  st.burningBlocks = Math.min(st.totalBlocks, st.burningBlocks + BUILDING_BLOCKS_PER_TICK);
-  spawnBuildingBlockFire(b);
-  if (st.burningBlocks >= st.totalBlocks) {
+  const toLight = Math.min(BUILDING_BLOCKS_PER_TICK, st.blocks.length - st.litCount);
+  for (let i = 0; i < toLight; i++) {
+    const spot = st.blocks[st.litCount];
+    spawnFireEffect(new THREE.Vector3(spot.x, spot.y, spot.z), true);
+    st.litCount++;
+  }
+  if (st.litCount >= st.blocks.length) {
     st.demolishing = true;
     st.demolishTimer = 0;
+    st.demolishStep = 0;
     showDangerBanner('🔥 BUILDING FULLY ALIGHT — COLLAPSING');
   }
 }
@@ -2235,16 +2254,21 @@ function finishDemolition(b, st) {
   }
 }
 
+// disappears in discrete steps, one every SPREAD_INTERVAL seconds, instead of a
+// smooth continuous shrink — matches the same 15s cadence the fire spreads on
 function updateBuildingDemolition(dt) {
   buildingFireState.forEach((st, b) => {
     if (!st.demolishing || st.rubbleSpawned) return;
     st.demolishTimer += dt;
-    const t = Math.min(1, st.demolishTimer / DEMOLISH_DURATION);
+    if (st.demolishTimer < SPREAD_INTERVAL) return;
+    st.demolishTimer -= SPREAD_INTERVAL;
+    st.demolishStep++;
+    const remaining = Math.max(0, 1 - st.demolishStep / DEMOLISH_STEPS);
     if (b.bodyMesh) {
-      b.bodyMesh.scale.y = Math.max(0.02, 1 - t);
-      b.bodyMesh.position.y = (b.topY * (1 - t)) / 2;
+      b.bodyMesh.scale.y = Math.max(0.02, remaining);
+      b.bodyMesh.position.y = (b.topY * remaining) / 2;
     }
-    if (t >= 1) finishDemolition(b, st);
+    if (st.demolishStep >= DEMOLISH_STEPS) finishDemolition(b, st);
   });
 }
 
