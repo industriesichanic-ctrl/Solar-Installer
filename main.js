@@ -191,6 +191,7 @@ const matInverterBody = new THREE.MeshStandardMaterial({ color: 0x2c2f33, roughn
 const matInverterVent = new THREE.MeshStandardMaterial({ color: 0x1c1e21, roughness: 0.6, metalness: 0.5 });
 const matSpark     = new THREE.MeshBasicMaterial({ color: 0x9fe8ff });
 const matFlexOrange = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.55, metalness: 0.15 });
+const matPipeCopper = new THREE.MeshStandardMaterial({ color: 0xb87333, roughness: 0.4, metalness: 0.7 });
 
 // ---------- Ground ----------
 const GROUND_SIZE = 280;
@@ -932,6 +933,9 @@ const megaBuildingBoxes = MEGA_BUILDING_DEFS.map((def) => {
 // building walls (ground level) and rooftops, purely decorative/frozen in pose ----------
 const matHvac = new THREE.MeshStandardMaterial({ color: 0xdcdcdc, roughness: 0.5, metalness: 0.4 });
 const matHvacGrille = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.6, metalness: 0.3 });
+// every scattered unit doubles as a "heat pump" anchor for the Plumbing job's Pipe Gun
+// (run a pipe from here to a water main and a tap — see Job Hut / Plumbing below)
+const heatPumps = [];
 function buildHvacUnit(x, y, z, facing) {
   const group = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.55, 0.32), matHvac);
@@ -944,6 +948,7 @@ function buildHvacUnit(x, y, z, facing) {
   group.position.set(x, y, z);
   group.rotation.y = facing;
   scene.add(group);
+  heatPumps.push({ mesh: group, pos: new THREE.Vector3(x, y + 0.3, z), normal: new THREE.Vector3(0, 1, 0), wiredCables: new Set() });
   return group;
 }
 
@@ -1018,6 +1023,28 @@ BUILDING_DEFS.forEach((def, i) => {
   const lampCoord = wallCoord + sign * 3.5;
   const lx = alongX ? lampCoord : midOther, lz = alongX ? midOther : lampCoord;
   streetLamps.push(buildStreetLamp(lx, lz));
+});
+
+// ---------- Water main stubs — a small pipe-clump near every building's base
+// (Plumbing job's Pipe Gun target: run a pipe from a heat pump, through the network,
+// to one of these to complete the connection) ----------
+const waterMains = [];
+const matWaterMain = new THREE.MeshStandardMaterial({ color: 0x2a4a6a, roughness: 0.5, metalness: 0.6 });
+function buildWaterMain(x, z) {
+  const group = new THREE.Group();
+  const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.5, 10), matWaterMain);
+  stub.position.y = 0.25;
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), matWaterMain);
+  cap.position.y = 0.5;
+  group.add(stub, cap);
+  group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  group.position.set(x, 0, z);
+  scene.add(group);
+  waterMains.push({ mesh: group, pos: new THREE.Vector3(x, 0.5, z), normal: new THREE.Vector3(0, 1, 0), wiredCables: new Set() });
+}
+buildingBoxes.concat(megaBuildingBoxes).forEach((b) => {
+  const x = b.minX - 1.2, z = (b.minZ + b.maxZ) / 2;
+  buildWaterMain(x, z);
 });
 
 // ---------- Salvage Yard (unlocked at the 2000-connected milestone) ----------
@@ -1631,6 +1658,13 @@ document.addEventListener('mousedown', (e) => {
     }
   }
 
+  // Job Hut intercept — same pattern as the shop counter above
+  const jobHit = findJobTileUnderCrosshair();
+  if (jobHit) {
+    if (e.button === 2) { selectJobTile(jobHit); return; }
+    if (e.button === 0 && selectedJobTile) { confirmJobSelection(); return; }
+  }
+
   if (currentWeapon === 1) {
     if (e.button === 0) mouseDown = true;
     // Map 2's weapon 1 is the tree cutter (see fire()) — no RMB action, and
@@ -1647,8 +1681,12 @@ document.addEventListener('mousedown', (e) => {
     if (e.button === 0) routerLeftDown();
     if (e.button === 2) routerRightClick();
   } else if (currentWeapon === 4) {
-    if (e.button === 0) fireInverter();
-    if (e.button === 2) handleInverterRightClick();
+    if (currentJob === 'plumber') {
+      if (e.button === 0) fireTap();
+    } else {
+      if (e.button === 0) fireInverter();
+      if (e.button === 2) handleInverterRightClick();
+    }
   } else if (currentWeapon === 5) {
     if (e.button === 0) mouseDown = true; // hold to spray
   } else if (currentWeapon === 6) {
@@ -2673,6 +2711,7 @@ function handleInteractKey() {
       return;
     }
   }
+  if (toggleTapUnderCrosshair()) return;
   toggleInverterSwitch();
 }
 
@@ -3097,6 +3136,11 @@ function fire() {
     return;
   }
 
+  // Plumbing job replaces the Solar Panel Gun's LMB with the Fixture Gun — same
+  // ammo/cooldown economy, just places a fixture instead of a panel. Weapons 2/3
+  // (Cable Gun/Router) need no branching at all, see the Plumbing job toolset notes.
+  if (currentJob === 'plumber') { fireFixture(); return; }
+
   if (blockPlaceMode && upgrades.blockPlacementUnlocked) {
     const target = getPlacementTarget();
     const result = target ? computeBlockCells(target) : null;
@@ -3185,11 +3229,21 @@ function buildRoutedLegs(rawPoints) {
   return legs;
 }
 
-function buildCableSegment(pt0, n0, pt1, n1, group, rawSegIndex, heavy) {
+function buildCableSegment(pt0, n0, pt1, n1, group, rawSegIndex, heavy, pipe) {
   const p0 = pt0.clone().addScaledVector(n0, CABLE_FLUSH);
   const p1 = pt1.clone().addScaledVector(n1, CABLE_FLUSH);
   const dir = new THREE.Vector3().subVectors(p1, p0);
   if (dir.length() < 0.02) return;
+
+  if (pipe) {
+    // plumbing run: one solid copper-colored pipe, not dual electrical strands
+    const s = new THREE.Mesh(flexUnitGeo, matPipeCopper);
+    alignCylinderBetween(s, p0, p1);
+    s.castShadow = true;
+    s.userData.rawSegIndex = rawSegIndex;
+    group.add(s);
+    return;
+  }
 
   if (heavy) {
     // inverter-to-inverter link: one thick bundled orange flex cord, not dual strands
@@ -3223,8 +3277,11 @@ function rebuildCableMesh(cableObj) {
   const group = new THREE.Group();
   const heavy = !!(cableObj.startAnchor && cableObj.endAnchor
     && cableObj.startAnchor.type === 'inverter' && cableObj.endAnchor.type === 'inverter');
+  const plumbingTypes = ['fixture', 'tap', 'heatpump', 'watermain'];
+  const pipe = !!((cableObj.startAnchor && plumbingTypes.includes(cableObj.startAnchor.type))
+    || (cableObj.endAnchor && plumbingTypes.includes(cableObj.endAnchor.type)));
   const legs = buildRoutedLegs(cableObj.rawPoints);
-  legs.forEach((leg) => buildCableSegment(leg.a.point, leg.a.normal, leg.b.point, leg.b.normal, group, leg.rawSegIndex, heavy));
+  legs.forEach((leg) => buildCableSegment(leg.a.point, leg.a.normal, leg.b.point, leg.b.normal, group, leg.rawSegIndex, heavy, pipe));
   group.userData.cableRef = cableObj;
   scene.add(group);
   cableObj.mesh = group;
@@ -3261,11 +3318,28 @@ function findNearestAnchor(point, maxDist) {
     const d = s.pos.distanceTo(point);
     if (d < bestDist) { bestDist = d; best = s; bestType = 'switchboard'; }
   }
+  for (const f of fixtures) {
+    const d = f.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = f; bestType = 'fixture'; }
+  }
+  for (const t of taps) {
+    const d = t.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = t; bestType = 'tap'; }
+  }
+  for (const h of heatPumps) {
+    const d = h.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = h; bestType = 'heatpump'; }
+  }
+  for (const w of waterMains) {
+    const d = w.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = w; bestType = 'watermain'; }
+  }
   return best ? { obj: best, type: bestType } : null;
 }
 
 function anchorThickness(anchor) {
-  if (anchor.type === 'panel') return PANEL_THICK;
+  if (anchor.type === 'panel' || anchor.type === 'fixture') return PANEL_THICK;
+  if (anchor.type === 'tap' || anchor.type === 'heatpump' || anchor.type === 'watermain') return 0.15;
   if (anchor.type === 'battery') return BATTERY_THICK;
   if (anchor.type === 'switchboard') return SWITCHBOARD_THICK;
   return INVERTER_THICK;
@@ -3376,6 +3450,7 @@ function finishCable() {
   refreshAllInverterSigns();
   checkLiveOverloads(); // wiring more array into an already-running inverter can overload it immediately
   updateSwitchboardEnergize();
+  updateTapFlow();
   showToast('CABLE RUN CONNECTED');
 }
 
@@ -3439,6 +3514,7 @@ function unwireAnchor(anchor, cableObj) {
     updateInverterIndicator(anchor.obj);
   }
   if (anchor.type === 'inverter' || anchor.type === 'battery' || anchor.type === 'switchboard') updateSwitchboardEnergize();
+  if (anchor.type === 'tap' || anchor.type === 'heatpump' || anchor.type === 'watermain' || anchor.type === 'fixture') updateTapFlow();
 }
 
 // tears down a cable: drops scrap along its length, unwires either end, removes its mesh
@@ -4027,6 +4103,7 @@ function isAnchorElectrified(anchor) {
   if (anchor.type === 'inverter') return anchor.obj.poweredOn;
   if (anchor.type === 'switchboard') return anchor.obj.energized;
   if (anchor.type === 'battery') return false; // batteries don't carry mains current in this model
+  if (anchor.type === 'fixture' || anchor.type === 'tap' || anchor.type === 'heatpump' || anchor.type === 'watermain') return false; // plumbing, not electrical
   return isPanelElectrified(anchor.obj);
 }
 
@@ -4482,6 +4559,11 @@ function updateHud() {
     weaponLine = `<b>1: Tree Cutter</b> — ${reloadMsg}<br>` +
       `<span class="good">LMB</span> aim at a tree to clear it (drops timber scrap) &nbsp; <span class="good">R</span> reload<br>` +
       `clear the trees shading the array so it isn't blocked`;
+  } else if (currentWeapon === 1 && currentJob === 'plumber') {
+    const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
+    weaponLine = `<b>1: Fixture Gun</b> — ${reloadMsg}<br>` +
+      `<span class="good">LMB</span> fire (snaps to grid, stacks side by side) &nbsp; <span class="good">R</span> reload<br>` +
+      `Cable Gun (2) wires fixtures to heat pumps and water mains &nbsp; Tap Gun (4) places a tap &nbsp; <span class="key" style="font-size:11px;">E</span> toggle a tap`;
   } else if (currentWeapon === 1) {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
     const areaMsg = unlockedAreaTool
@@ -4512,6 +4594,10 @@ function updateHud() {
     const salvageMsg = upgrades.salvageUnlocked ? ` &nbsp; no cable aimed? <span class="good">RMB</span> salvages a panel` : '';
     weaponLine = `<b>3: Cable Router</b> — ${grabMsg}<br>` +
       `<span class="good">LMB</span> hold on a cable, look to a new point, release to bend it there &nbsp; <span class="good">RMB</span> straighten a bend${salvageMsg}`;
+  } else if (currentWeapon === 4 && currentJob === 'plumber') {
+    weaponLine = `<b>4: Tap Gun</b><br>` +
+      `<span class="good">LMB</span> fire onto a wall to place a tap (snaps to grid) &nbsp; <span class="key" style="font-size:11px;">E</span> aim at a tap to open/close it<br>` +
+      `a tap only flows once its pipe network reaches both a heat pump and a water main`;
   } else if (currentWeapon === 4) {
     const selMsg = selectedInverters.size ? ` — <span class="good">${selectedInverters.size}/3 selected</span>` : '';
     weaponLine = `<b>4: Inverter Gun</b>${selMsg}<br>` +
@@ -4598,6 +4684,7 @@ function animate() {
   if (inverterFireCooldown > 0) inverterFireCooldown -= dt;
   if (batteryFireCooldown > 0) batteryFireCooldown -= dt;
   if (switchboardFireCooldown > 0) switchboardFireCooldown -= dt;
+  if (tapFireCooldown > 0) tapFireCooldown -= dt;
   if (bulkInverterCooldown > 0) bulkInverterCooldown -= dt;
   if (repairCooldown > 0) repairCooldown -= dt;
   if (demoToolCooldown > 0) demoToolCooldown -= dt;
@@ -4718,6 +4805,20 @@ function animate() {
       ghostMesh.visible = false;
       ghostAreaMesh.visible = false;
       ghostInverterMesh.visible = false;
+    } else if (currentWeapon === 1 && currentJob === 'plumber') {
+      ghostAreaMesh.visible = false;
+      ghostInverterMesh.visible = false;
+      const target = getFixturePlacementTarget();
+      if (target) {
+        ghostMesh.visible = true;
+        ghostMesh.geometry = ghostGeo;
+        ghostMesh.material = isFixtureSpotFree(target.point) ? matGhostGood : matGhostBad;
+        const up = new THREE.Vector3(0, 1, 0);
+        ghostMesh.quaternion.setFromUnitVectors(up, target.normal);
+        ghostMesh.position.copy(target.point).addScaledVector(target.normal, PANEL_THICK / 2 + 0.01);
+      } else {
+        ghostMesh.visible = false;
+      }
     } else if (currentWeapon === 1) {
       ghostAreaMesh.visible = false;
       ghostInverterMesh.visible = false;
@@ -4743,6 +4844,19 @@ function animate() {
       ghostAreaMesh.visible = false;
       ghostInverterMesh.visible = false;
       updateRouterPreview();
+    } else if (currentWeapon === 4 && currentJob === 'plumber') {
+      ghostMesh.visible = false;
+      ghostAreaMesh.visible = false;
+      const target = getTapPlacementTarget();
+      if (target) {
+        ghostInverterMesh.visible = true;
+        ghostInverterMesh.material = isTapSpotFree(target.point) ? matGhostGood : matGhostBad;
+        const up = new THREE.Vector3(0, 1, 0);
+        ghostInverterMesh.quaternion.setFromUnitVectors(up, target.normal);
+        ghostInverterMesh.position.copy(target.point).addScaledVector(target.normal, 0.1);
+      } else {
+        ghostInverterMesh.visible = false;
+      }
     } else {
       ghostMesh.visible = false;
       ghostAreaMesh.visible = false;
@@ -4766,6 +4880,284 @@ function animate() {
   }
 
   renderer.render(scene, camera);
+}
+
+// ============================================================================
+// Job Hut — pick a trade at a physical kiosk (RMB select a tile, LMB confirm,
+// same interaction pattern as the Salvage Yard weapon shop). Only Solar Installer
+// (the game's default loadout) and Plumber are actually playable; every other job
+// is listed with its name and icon so the player can see what's coming, but is
+// locked — "no need to code the other jobs now" was explicit, so there's no
+// invented unlock criteria for them yet, just `unlocked: false`.
+// ============================================================================
+const JOBS = [
+  { id: 'solar', name: 'Solar Installer', icon: '☀️', unlocked: true },
+  { id: 'plumber', name: 'Plumber', icon: '🔧', unlocked: true },
+  { id: 'aircon', name: 'Aircon Installer', icon: '❄️', unlocked: false },
+  { id: 'heatpump', name: 'Heat Pump Installer', icon: '🌡️', unlocked: false },
+  { id: 'carpenter', name: 'Carpenter', icon: '🔨', unlocked: false },
+  { id: 'playground', name: 'Playground Builder', icon: '🎠', unlocked: false },
+  { id: 'roadbuilder', name: 'Road Builder', icon: '🛣️', unlocked: false },
+  { id: 'electrician', name: 'Electrician', icon: '⚡', unlocked: false },
+  { id: 'landscaper', name: 'Landscaper', icon: '🌳', unlocked: false },
+  { id: 'painter', name: 'Painter', icon: '🎨', unlocked: false },
+  { id: 'roofer', name: 'Roofer', icon: '🏠', unlocked: false },
+  { id: 'glazier', name: 'Glazier', icon: '🪟', unlocked: false },
+  { id: 'fencer', name: 'Fence Builder', icon: '🚧', unlocked: false },
+  { id: 'bricklayer', name: 'Bricklayer', icon: '🧱', unlocked: false },
+  { id: 'concreter', name: 'Concreter', icon: '🏗️', unlocked: false },
+  { id: 'telecom', name: 'Telecom Installer', icon: '📡', unlocked: false },
+  { id: 'lampfixer', name: 'Streetlight Technician', icon: '💡', unlocked: false },
+  { id: 'signage', name: 'Sign Installer', icon: '🪧', unlocked: false },
+  { id: 'irrigation', name: 'Irrigation Installer', icon: '💧', unlocked: false },
+  { id: 'waste', name: 'Waste Collector', icon: '🗑️', unlocked: false },
+  { id: 'poolbuilder', name: 'Pool Builder', icon: '🏊', unlocked: false },
+  { id: 'fountain', name: 'Fountain Builder', icon: '⛲', unlocked: false },
+  { id: 'muralist', name: 'Mural Artist', icon: '🖌️', unlocked: false },
+  { id: 'demolition', name: 'Demolition Contractor', icon: '🧨', unlocked: false },
+  { id: 'security', name: 'Security/CCTV Installer', icon: '📷', unlocked: false },
+];
+let currentJob = 'solar';
+const jobTileMeshes = []; // { mesh, job }
+let selectedJobTile = null;
+
+function buildJobHut() {
+  const hx = -6, hz = 30;
+  const shedMat = new THREE.MeshStandardMaterial({ color: 0x5a4a30, roughness: 0.8 });
+  const shed = new THREE.Mesh(new THREE.BoxGeometry(6, 3, 5), shedMat);
+  shed.position.set(hx, 1.5, hz);
+  shed.castShadow = true;
+  shed.receiveShadow = true;
+  scene.add(shed);
+  worldMeshes.push(shed);
+  addWallBox(hx - 3, hx + 3, hz - 2.5, hz + 2.5, 0, 3);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.3, 5.6), matRoofHighlight);
+  roof.position.set(hx, 3.15, hz);
+  roof.castShadow = true;
+  scene.add(roof);
+
+  const doorSign = makeTextSprite('JOB HUT', { fontSize: 50, color: '#ffd54a', border: '#ff9a4d', scale: 0.8 });
+  doorSign.position.set(hx, 3.8, hz - 2.6);
+  scene.add(doorSign);
+
+  // 5x5 job board mounted just outside the front wall
+  const boardZ = hz - 2.58;
+  const cols = 5;
+  const spacing = 1.15;
+  const startX = hx - (cols - 1) * spacing / 2;
+  const startY = 3.0;
+  JOBS.forEach((job, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    const tx = startX + col * spacing;
+    const ty = startY - row * 0.95;
+    const tileMat = new THREE.MeshStandardMaterial({ color: job.unlocked ? 0x2a5a3a : 0x2a2a2e, roughness: 0.6 });
+    const tile = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.78, 0.06), tileMat);
+    tile.position.set(tx, ty, boardZ);
+    tile.castShadow = true;
+    scene.add(tile);
+    const label = job.unlocked ? `${job.icon} ${job.name}` : `${job.icon} ${job.name} 🔒`;
+    const sprite = makeTextSprite(label, {
+      fontSize: 24,
+      color: job.unlocked ? '#d8ecff' : '#7a828a',
+      border: job.unlocked ? '#7fd4ff' : '#4a4a50',
+      scale: 0.34,
+    });
+    sprite.position.set(tx, ty, boardZ - 0.05);
+    scene.add(sprite);
+    jobTileMeshes.push({ mesh: tile, job });
+  });
+}
+buildJobHut();
+
+function findJobTileUnderCrosshair() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(jobTileMeshes.map((t) => t.mesh), false);
+  if (!hits.length || hits[0].distance > 6) return null;
+  const found = jobTileMeshes.find((t) => t.mesh === hits[0].object);
+  return found ? found.job : null;
+}
+function selectJobTile(job) {
+  selectedJobTile = job;
+  if (!job.unlocked) { showToast(`${job.name.toUpperCase()} IS LOCKED`); return; }
+  showToast(`SELECTED: ${job.name} — LMB TO CONFIRM`);
+}
+function confirmJobSelection() {
+  const job = selectedJobTile;
+  selectedJobTile = null;
+  if (!job || !job.unlocked) return;
+  if (job.id === currentJob) { showToast('ALREADY YOUR CURRENT JOB'); return; }
+  currentJob = job.id;
+  setWeapon(1); // jump back to slot 1 so the new toolkit is immediately visible
+  showMilestoneBanner('🧰', `NOW WORKING AS: ${job.name.toUpperCase()}`);
+}
+
+// ---------- Plumbing job toolset ----------
+// Weapon 1 (LMB) places a fixture (mirrors placePanel's grid-snap exactly, just no
+// wattage/tiers/streak-banner side effects). Weapon 2/3 (Cable Gun/Router) need no
+// changes at all — the anchor system already recognizes 'fixture'/'tap'/'heatpump'/
+// 'watermain' everywhere (see findNearestAnchor), and pipes are just cables rendered
+// with a different material (see rebuildCableMesh's `pipe` flag). Weapon 4 places a
+// tap (mirrors placeInverter, single-tier, no auto-merge); `E` toggles a tap the same
+// way it toggles an inverter (see handleInteractKey below).
+const FIXTURE_SIZE = PANEL_SIZE;
+const fixtures = [];
+const matFixtureBody = new THREE.MeshStandardMaterial({ color: 0xd8d8d8, roughness: 0.4, metalness: 0.5 });
+function getFixturePlacementTarget() {
+  const hit = findPlacementHit();
+  if (!hit) return null;
+  let nearest = null, nearestDist = SNAP_RADIUS;
+  for (const f of fixtures) {
+    const dist = f.pos.distanceTo(hit.point);
+    if (dist < nearestDist) { nearestDist = dist; nearest = f; }
+  }
+  if (!nearest) return { point: hit.point, normal: hit.normal, snapped: false };
+  const q = nearest.mesh.quaternion;
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  const candidates = [
+    nearest.pos.clone().addScaledVector(right, FIXTURE_SIZE),
+    nearest.pos.clone().addScaledVector(right, -FIXTURE_SIZE),
+    nearest.pos.clone().addScaledVector(fwd, FIXTURE_SIZE),
+    nearest.pos.clone().addScaledVector(fwd, -FIXTURE_SIZE),
+  ];
+  let best = candidates[0], bestDist = Infinity;
+  for (const c of candidates) { const dd = c.distanceTo(hit.point); if (dd < bestDist) { bestDist = dd; best = c; } }
+  const snappedNormal = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+  return { point: best, normal: snappedNormal, snapped: true };
+}
+function isFixtureSpotFree(point) {
+  for (const f of fixtures) if (f.pos.distanceTo(point) < FIXTURE_SIZE * 0.92) return false;
+  return true;
+}
+function placeFixture(point, normal) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(FIXTURE_SIZE, PANEL_THICK, FIXTURE_SIZE), matFixtureBody);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(FIXTURE_SIZE + 0.06, PANEL_THICK * 0.6, FIXTURE_SIZE + 0.06), matPanelFrame);
+  frame.position.y = -PANEL_THICK * 0.3;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(frame, body);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, PANEL_THICK / 2 + 0.005);
+  scene.add(group);
+  groundColliders.push(group);
+  worldMeshes.push(body);
+  const fixture = { mesh: group, pos: point.clone(), normal: normal.clone(), wiredCables: new Set() };
+  fixtures.push(fixture);
+  return fixture;
+}
+function fireFixture() {
+  if (fireCooldown > 0 || reloading) return;
+  if (ammo <= 0) { reload(); return; }
+  fireCooldown = FIRE_COOLDOWN * upgrades.fireRateMul;
+  ammo--;
+  flashTimer = 0.06;
+  muzzleFlash.intensity = 3.5;
+  const target = getFixturePlacementTarget();
+  if (target && isFixtureSpotFree(target.point)) placeFixture(target.point, target.normal);
+}
+
+const taps = [];
+const matTapBody = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.4, metalness: 0.6 });
+function getTapPlacementTarget() {
+  const hit = findInverterPlacementHit();
+  if (!hit) return null;
+  let nearest = null, nearestDist = INVERTER_SNAP_RADIUS;
+  for (const t of taps) {
+    const dist = t.pos.distanceTo(hit.point);
+    if (dist < nearestDist) { nearestDist = dist; nearest = t; }
+  }
+  if (!nearest) return { point: hit.point, normal: hit.normal, snapped: false };
+  const q = nearest.mesh.quaternion;
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  const candidates = [
+    nearest.pos.clone().addScaledVector(right, INVERTER_STEP),
+    nearest.pos.clone().addScaledVector(right, -INVERTER_STEP),
+    nearest.pos.clone().addScaledVector(fwd, INVERTER_STEP),
+    nearest.pos.clone().addScaledVector(fwd, -INVERTER_STEP),
+  ];
+  let best = candidates[0], bestDist = Infinity;
+  for (const c of candidates) { const dd = c.distanceTo(hit.point); if (dd < bestDist) { bestDist = dd; best = c; } }
+  const snappedNormal = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+  return { point: best, normal: snappedNormal, snapped: true };
+}
+function isTapSpotFree(point) {
+  for (const t of taps) if (t.pos.distanceTo(point) < INVERTER_STEP * 0.85) return false;
+  return true;
+}
+function placeTap(point, normal) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.3, 0.18), matTapBody);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0xff5050, emissive: 0x5a1010, emissiveIntensity: 1.0 });
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.22, 8), handleMat);
+  handle.rotation.z = Math.PI / 2;
+  handle.position.set(0, 0.18, 0);
+  group.add(body, handle);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, 0.1);
+  scene.add(group);
+  worldMeshes.push(body);
+  const tap = { mesh: group, pos: point.clone(), normal: normal.clone(), wiredCables: new Set(), on: false, flowing: false, handleMat };
+  taps.push(tap);
+  return tap;
+}
+let tapFireCooldown = 0;
+function fireTap() {
+  if (tapFireCooldown > 0) return;
+  tapFireCooldown = 0.28;
+  const target = getTapPlacementTarget();
+  if (target && isTapSpotFree(target.point)) placeTap(target.point, target.normal);
+}
+
+// component-wide BFS (same fidelity as isSwitchboardEnergized) — a tap "flows" once its
+// connected pipe network reaches both a heat pump and a water main
+function isTapNetworkComplete(tap) {
+  const visited = new Set([tap]);
+  const queue = [tap];
+  let sawHeatPump = false, sawWaterMain = false;
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const c of cables) {
+      let other = null;
+      if (c.startAnchor && c.startAnchor.obj === cur) other = c.endAnchor;
+      else if (c.endAnchor && c.endAnchor.obj === cur) other = c.startAnchor;
+      if (!other || visited.has(other.obj)) continue;
+      visited.add(other.obj);
+      if (other.type === 'heatpump') sawHeatPump = true;
+      if (other.type === 'watermain') sawWaterMain = true;
+      if (['tap', 'fixture', 'heatpump', 'watermain'].includes(other.type)) queue.push(other.obj);
+    }
+  }
+  return sawHeatPump && sawWaterMain;
+}
+function updateTapFlow() {
+  taps.forEach((tap) => {
+    const nowFlowing = tap.on && isTapNetworkComplete(tap);
+    if (nowFlowing === tap.flowing) return;
+    tap.flowing = nowFlowing;
+    tap.handleMat.color.setHex(nowFlowing ? 0x4dff88 : 0xff5050);
+    tap.handleMat.emissive.setHex(nowFlowing ? 0x2a8850 : 0x5a1010);
+    if (nowFlowing) showMilestoneBanner('💧', 'WATER FLOWING — HEAT PUMP CONNECTED TO THE MAIN!');
+  });
+}
+function toggleTapUnderCrosshair() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(taps.map((t) => t.mesh), true);
+  if (!hits.length) return false;
+  let obj = hits[0].object;
+  while (obj && !taps.some((t) => t.mesh === obj)) obj = obj.parent;
+  const tap = taps.find((t) => t.mesh === obj);
+  if (!tap) return false;
+  if (tap.wiredCables.size === 0) { showToast('NOTHING WIRED TO THIS TAP'); return true; }
+  tap.on = !tap.on;
+  showToast(tap.on ? 'TAP OPENED' : 'TAP CLOSED');
+  updateTapFlow();
+  return true;
 }
 
 // ============================================================================
@@ -5002,4 +5394,11 @@ window.__debug = {
   map2GoalReached: () => map2GoalReached, inverterCapacityKw, MAP2_INVERTER_CAPACITY_KW,
   IS_MOBILE, setPlayState, mobileControls, keysHas: (code) => keys.has(code),
   mouseDownState: () => mouseDown, yawState: () => yaw,
+  JOBS, currentJob: () => currentJob, setCurrentJob: (id) => { currentJob = id; },
+  jobTileMeshes, findJobTileUnderCrosshair, selectJobTile, confirmJobSelection,
+  selectedJobTile: () => selectedJobTile,
+  fixtures, taps, heatPumps, waterMains,
+  fireFixture, fireTap, toggleTapUnderCrosshair, updateTapFlow, isTapNetworkComplete,
+  getFixturePlacementTarget, isFixtureSpotFree, getTapPlacementTarget, isTapSpotFree,
+  placeFixture, placeTap, rebuildCableMesh,
 };
