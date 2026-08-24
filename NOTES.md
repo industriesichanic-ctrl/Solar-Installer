@@ -384,6 +384,40 @@ console errors on any map. Also investigated the earlier "Map 2 doesn't
 load" report as part of this pass — still not reproducible, see the v20
 entry above.
 
+### Sprint stamina meter (v23)
+
+Replaces the flat 3x sprint speed from the previous request with a tiered,
+draining meter — `#staminaWrap`/`#staminaFill` (a slim pastel bar,
+bottom-center, shown/hidden alongside the rest of the HUD in
+`setPlayState`).
+- Drains 100 → 0 over exactly `SPRINT_DRAIN_DURATION` (3) seconds of
+  continuous sprinting — `sprinting` now requires `staminaPct > 0` in
+  addition to the Shift-held/grounded/not-crouching/actually-moving checks
+  it already had.
+- Speed multiplier is read from whichever color band the meter is
+  *currently* in, recalculated every frame (`staminaBandOf`) — green
+  (>65%) is 4x walk speed, yellow (35-65%) is 3x, red (0-35%) is 2x — so a
+  long sprint visibly slows down as the bar drops through the bands mid-run,
+  not just at the start. `upgrades.sprintMul` (the 500/1500-connected
+  milestone bonus) still multiplies on top of whichever tier is active.
+- Regen is **not** a flat rate — `updateStamina` locks in a refill
+  *duration* at the exact moment sprinting stops, based on which band it
+  stopped in (`STAMINA_REFILL_DURATIONS`: exhausted at 0% → 10s, red → 8s,
+  yellow → 6s, green → 4s), then derives a constant rate from
+  `(100 - stoppedAtPct) / duration` and applies that until either the bar
+  reaches 100 or the player starts sprinting again (which abandons the
+  rate and redrains normally).
+- Colors: pastel green `#a8e6a1`, pastel yellow `#f5e6a3`, pastel red
+  `#f5a3a3`, matching the literal request.
+
+Verified via `window.__debug.updateStamina`/`setStaminaPct`: 1 second of
+continuous sprinting leaves exactly 66.67% (matches the 100/3-per-second
+drain rate); stopping at 0% locks in a regen rate of exactly 10 (100 over
+10s); stopping at 20%/50%/90% locks in 10/8.33/2.5 respectively, matching
+`(100-pct)/duration` for red/yellow/green; the fill bar's width and
+`background-color` both update correctly for all three bands. Not yet
+played live with real Shift-key input to confirm the on-screen feel.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic

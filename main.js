@@ -41,7 +41,46 @@ const EYE_HEIGHT_CROUCH = 1.05;
 const PLAYER_RADIUS = 0.35;
 const GRAVITY = 24;
 const WALK_SPEED = 5.2;
-const SPRINT_SPEED = 27.0; // 3x the original 9.0, per explicit request
+const SPRINT_SPEED = 27.0; // 3x the original 9.0, per explicit request — superseded by
+                            // the tiered stamina-based sprint multiplier below, kept
+                            // only so nothing referencing it elsewhere breaks
+// ---------- Sprint stamina meter ----------
+// Drains 100 -> 0 over exactly SPRINT_DRAIN_DURATION seconds of continuous sprinting.
+// Speed multiplier depends on which color band the meter is currently in (recalculated
+// every frame, so it visibly steps down mid-sprint as the bar crosses a threshold).
+// Refill duration is fixed at the moment sprinting stops, based on which band it
+// stopped in — not a flat regen rate — per explicit spec.
+const SPRINT_DRAIN_DURATION = 3;
+const STAMINA_BAND_THRESHOLDS = { red: 35, yellow: 65 }; // green is anything above yellow's threshold
+const STAMINA_REFILL_DURATIONS = { exhausted: 10, red: 8, yellow: 6, green: 4 };
+let staminaPct = 100;
+let staminaRegenRate = 0;
+let staminaWasSprinting = false;
+function staminaBandOf(pct) {
+  if (pct <= STAMINA_BAND_THRESHOLDS.red) return 'red';
+  if (pct <= STAMINA_BAND_THRESHOLDS.yellow) return 'yellow';
+  return 'green';
+}
+function updateStamina(dt, sprinting) {
+  if (sprinting) {
+    staminaPct = Math.max(0, staminaPct - (100 / SPRINT_DRAIN_DURATION) * dt);
+  } else if (staminaPct < 100) {
+    staminaPct = Math.min(100, staminaPct + staminaRegenRate * dt);
+  }
+
+  if (staminaWasSprinting && !sprinting) {
+    // just stopped (voluntarily, or ran out) — lock in a refill duration based on
+    // exactly where the meter is right now
+    const durationKey = staminaPct <= 0 ? 'exhausted' : staminaBandOf(staminaPct);
+    const duration = STAMINA_REFILL_DURATIONS[durationKey];
+    staminaRegenRate = (100 - staminaPct) / duration;
+  }
+  staminaWasSprinting = sprinting;
+
+  const band = staminaBandOf(staminaPct);
+  staminaFill.style.width = `${staminaPct}%`;
+  staminaFill.style.backgroundColor = band === 'green' ? '#a8e6a1' : band === 'yellow' ? '#f5e6a3' : '#f5a3a3';
+}
 const CROUCH_SPEED = 2.6;
 const JUMP_SPEED = 7.6;
 const CROUCH_LERP = 12;
@@ -1725,6 +1764,8 @@ const mapCanvas = document.getElementById('mapCanvas');
 const mapCtx = mapCanvas.getContext('2d');
 const mapHint = document.getElementById('mapHint');
 const panelCountEl = document.getElementById('panelCount');
+const staminaWrap = document.getElementById('staminaWrap');
+const staminaFill = document.getElementById('staminaFill');
 const mobileControls = document.getElementById('mobileControls');
 const streakToastEl = document.getElementById('streakToast');
 const milestoneBannerEl = document.getElementById('milestoneBanner');
@@ -1786,6 +1827,7 @@ function setPlayState(locked) {
   crosshair.style.display = locked ? 'block' : 'none';
   hud.style.display = locked ? 'block' : 'none';
   panelCountEl.style.display = locked ? 'block' : 'none';
+  staminaWrap.style.display = locked ? 'block' : 'none';
   mapPanel.style.display = locked ? 'none' : 'flex';
   if (IS_MOBILE) mobileControls.style.display = locked ? 'block' : 'none';
 }
@@ -5147,8 +5189,12 @@ function animate() {
     if (keys.has('KeyA')) move.sub(right);
     if (move.lengthSq() > 0) move.normalize();
 
-    const sprinting = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !crouching && grounded;
-    const speed = crouching ? CROUCH_SPEED : (sprinting ? SPRINT_SPEED * upgrades.sprintMul : WALK_SPEED);
+    const wantSprint = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !crouching && grounded && move.lengthSq() > 0;
+    const sprinting = wantSprint && staminaPct > 0;
+    updateStamina(dt, sprinting);
+    const staminaBand = staminaPct <= 35 ? 'red' : staminaPct <= 65 ? 'yellow' : 'green';
+    const sprintMul = staminaBand === 'green' ? 4 : staminaBand === 'yellow' ? 3 : 2;
+    const speed = crouching ? CROUCH_SPEED : (sprinting ? WALK_SPEED * sprintMul * upgrades.sprintMul : WALK_SPEED);
 
     const newPos = camera.position.clone();
     newPos.x += move.x * speed * dt + airLaunch.x * dt;
@@ -6668,4 +6714,6 @@ window.__debug = {
   totalBarriersPlaced: () => totalBarriersPlaced,
   totalDemoDebrisCleared: () => totalDemoDebrisCleared,
   JOB_HUT_OFFSET, updateHud,
+  staminaPct: () => staminaPct, setStaminaPct: (v) => { staminaPct = v; }, updateStamina,
+  staminaWasSprinting: () => staminaWasSprinting, staminaRegenRate: () => staminaRegenRate,
 };

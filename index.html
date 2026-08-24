@@ -61,6 +61,18 @@
     border-radius: 8px; padding: 8px 14px; font-size: 14px; font-weight: 600;
   }
 
+  #staminaWrap {
+    position: fixed; left: 50%; bottom: 54px; transform: translateX(-50%);
+    z-index: 5; display: none; width: 160px; height: 10px;
+    background: rgba(10,16,22,0.6); border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 5px; overflow: hidden;
+  }
+  #staminaFill {
+    height: 100%; width: 100%; border-radius: 4px;
+    background: #a8e6a1; /* pastel green default */
+    transition: background-color 0.15s ease;
+  }
+
   #streakToast {
     position: fixed; top: 22%; left: 50%; transform: translate(-50%, -10px);
     z-index: 6; pointer-events: none; opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease;
@@ -224,6 +236,7 @@
     <p><span class="key">M</span> toggle full map (scroll wheel to zoom) · <span class="key">Esc</span> release mouse</p>
   </div>
   <div id="crosshair"></div>
+  <div id="staminaWrap"><div id="staminaFill"></div></div>
   <div id="hud"></div>
   <div id="mapWrap"><canvas id="mapCanvas" width="640" height="640"></canvas></div>
   <div id="mapHint">M: close &nbsp; scroll: zoom</div>
@@ -238,6 +251,6 @@
     }
   }
   </script>
-  <script type="module" src="./main.js?v=22"></script>
+  <script type="module" src="./main.js?v=23"></script>
 </body>
 </html>
