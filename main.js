@@ -75,7 +75,7 @@ function updateTextSprite(sprite, text, opts = {}) {
 const upgrades = {
   sprintMul: 1, jumpMul: 1, heightMul: 1, magBonus: 0, reloadMul: 1, fireRateMul: 1,
   largePanelUnlocked: false, salvageUnlocked: false, buildingJumpUnlocked: false, goldStars: 0, waterGunUnlocked: false,
-  powderUnlocked: false, blockPlacementUnlocked: false,
+  powderUnlocked: false, blockPlacementUnlocked: false, deliveryUnlocked: false,
 };
 function effStandHeight() { return EYE_HEIGHT_STAND * upgrades.heightMul; }
 function effCrouchHeight() { return EYE_HEIGHT_CROUCH * upgrades.heightMul; }
@@ -625,6 +625,61 @@ for (let i = 0; i < 6; i++) {
   buildCar(x, rand(-2.4, 2.4), 0, CAR_COLORS[(i + 3) % CAR_COLORS.length]);
 }
 
+// ---------- Delivery truck (spawned once, the first time an inverter goes live —
+// see toggleInverterSwitch) — parks near spawn and resupplies panel ammo up to
+// DELIVERY_AMMO_CAP when the player walks up to it. Not built at world-load; only
+// created the first time deliveryUnlocked flips true. ----------
+const DELIVERY_AMMO_CAP = 150;
+const DELIVERY_TRUCK_POS = new THREE.Vector3(4.5, 0, 16);
+let deliveryTruck = null; // { group, pos, sign }
+
+function buildDeliveryTruck(x, z, rotY) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xdedede, roughness: 0.5, metalness: 0.3 });
+  const cargoMat = new THREE.MeshStandardMaterial({ color: 0xffcf4a, roughness: 0.6, metalness: 0.1 });
+  const g = new THREE.Group();
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.6, 2.1), mat);
+  cab.position.set(2.6, 1.0, 0);
+  const cargo = new THREE.Mesh(new THREE.BoxGeometry(4.6, 2.1, 2.2), cargoMat);
+  cargo.position.set(-1.0, 1.25, 0);
+  g.add(cab, cargo);
+  const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 12);
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
+  [[2.6, 1.15], [2.6, -1.15], [-1.6, 1.15], [-1.6, -1.15], [-2.9, 1.15], [-2.9, -1.15]].forEach(([wx, wz]) => {
+    const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(wx, 0.42, wz);
+    g.add(wheel);
+  });
+  const sign = makeTextSprite(`AMMO: ${ammo}/${DELIVERY_AMMO_CAP}`, { color: '#8aff9e', border: '#4dff88', fontSize: 40, scale: 0.55 });
+  sign.position.set(-1.0, 3.1, 0);
+  g.add(sign);
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  g.position.set(x, 0, z);
+  g.rotation.y = rotY;
+  scene.add(g);
+  addWallBox(x - 3.4, x + 3.6, z - 1.2, z + 1.2, 0, 2.1);
+  return { group: g, sign };
+}
+
+function spawnDeliveryTruck() {
+  if (deliveryTruck) return;
+  const { group, sign } = buildDeliveryTruck(DELIVERY_TRUCK_POS.x, DELIVERY_TRUCK_POS.z, Math.PI / 2);
+  deliveryTruck = { group, pos: DELIVERY_TRUCK_POS.clone(), sign };
+}
+
+// walking within range tops panel ammo up to DELIVERY_AMMO_CAP — a bigger, one-stop
+// resupply on top of the normal reload, which is still capped at effMagSize()
+function updateDeliveryTruck() {
+  if (!deliveryTruck) return;
+  updateTextSprite(deliveryTruck.sign, `AMMO: ${ammo}/${DELIVERY_AMMO_CAP}`, { color: '#8aff9e', border: '#4dff88', fontSize: 40 });
+  const dist = Math.hypot(camera.position.x - deliveryTruck.pos.x, camera.position.z - deliveryTruck.pos.z);
+  if (dist < 3.5 && ammo < DELIVERY_AMMO_CAP) {
+    ammo = DELIVERY_AMMO_CAP;
+    reloading = false;
+    showToast(`TRUCK RESUPPLY — AMMO TOPPED UP TO ${DELIVERY_AMMO_CAP}`);
+  }
+}
+
 // ---------- Solar Farm District — a handful of huge flat-roofed warehouses at varying
 // heights, purpose-built for massive panel arrays (roof area totals ~1800 sqm, room
 // for 1000+ panels once you're deep into the connected-panel progression). ----------
@@ -958,7 +1013,9 @@ function updateInverterProduction(dt) {
 }
 
 function reload() {
-  if (reloading || ammo === effMagSize()) return;
+  // >= not === : a truck resupply can leave ammo above the normal mag size, and
+  // reloading in that state must never claw it back down to effMagSize()
+  if (reloading || ammo >= effMagSize()) return;
   reloading = true;
   reloadT = RELOAD_TIME * upgrades.reloadMul;
 }
@@ -1407,6 +1464,11 @@ function toggleInverterSwitch() {
   inv.poweredOn = true;
   updateInverterIndicator(inv);
   showToast('SOLAR ARRAY ONLINE');
+  if (!upgrades.deliveryUnlocked) {
+    upgrades.deliveryUnlocked = true;
+    spawnDeliveryTruck();
+    showMilestoneBanner('🚚', 'DELIVERY UPGRADE! A TRUCK ARRIVED — WALK UP TO IT FOR AMMO UP TO 150');
+  }
 }
 
 // ---------- Area-fill drag tool (unlocked at 100 panels placed) ----------
@@ -1690,7 +1752,9 @@ function pickUpNearestPanel() {
     removePanelFromGroups(p);
     panels.splice(best, 1);
     totalWattsInstalled -= p.watts;
-    ammo = Math.min(effMagSize(), ammo + 1);
+    // capped at effMagSize() normally, but never claws back a truck-resupplied ammo pool
+    // that's already sitting above that (see reload()'s matching >= check)
+    ammo = Math.min(Math.max(effMagSize(), ammo), ammo + 1);
   }
 }
 
@@ -3058,6 +3122,7 @@ function animate() {
     if (milestoneBannerTimer <= 0) milestoneBannerEl.classList.remove('show');
   }
   if (isLocked) updateSalvagePickups();
+  updateDeliveryTruck();
 
   if (isLocked) {
     crouching = keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC');
@@ -3228,4 +3293,6 @@ window.__debug = {
   BLOCK_PLACE_UNLOCK_COUNT, BLOCK_PLACE_SIZE, POWDER_UNLOCK_COUNT,
   extinguishedFireCount: () => extinguishedFireCount, registerExtinguish,
   rmbDown: () => rmbDown, pointOnPlacementSurface,
+  spawnDeliveryTruck, updateDeliveryTruck, deliveryTruck: () => deliveryTruck, DELIVERY_AMMO_CAP,
+  getAmmo: () => ammo, setAmmo: (v) => { ammo = v; },
 };

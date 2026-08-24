@@ -259,6 +259,24 @@ and from `showDangerBanner` (red, reused for overloads/electrocution).
 | 5000 | Gold Star ★★ — same buff stack again |
 | 10000 | Gold Star ★★★ — same buff stack again, **and** unlocks the Cable Gun building-to-building boost-jump |
 
+## Delivery truck
+
+Not milestone-driven — unlocked the moment the player successfully switches
+**any** inverter on for the first time (`toggleInverterSwitch`'s success
+branch, right after the "SOLAR ARRAY ONLINE" toast): `upgrades.deliveryUnlocked`
+flips true and `spawnDeliveryTruck()` builds a parked truck near spawn
+(`DELIVERY_TRUCK_POS`, currently `(4.5, 0, 16)`, on the clear road strip —
+buildings are never generated on the `x≈0`/`z≈0` road columns, so this spot
+doesn't need a collision-avoidance search). A `showMilestoneBanner` announces
+it. Walking within 3.5m (`updateDeliveryTruck`, called every frame regardless
+of weapon) tops panel ammo up to `DELIVERY_AMMO_CAP` (150) — well above the
+normal magazine size (`effMagSize()`, 12 + upgrade bonuses, caps out around
+30). This is a *separate, bigger* resupply on top of normal `R` reload, not a
+replacement: `reload()` and the panel-pickup ammo trickle
+(`pickUpNearestPanel`) both had to be changed from a plain `=== effMagSize()`
+target to "don't reduce ammo below whatever it already is," specifically so
+neither one claws a truck-topped 150 back down to the ~12-30 normal cap.
+
 ## Salvage economy
 
 Unlocked at 2000 connected. Two *separate* scrap types, tracked
@@ -347,6 +365,15 @@ spent on anything.
   (a short raycast from just above each candidate cell straight back into the
   surface) and rejecting any cell that misses; both `computeAreaCells` and the
   newer `computeBlockCells` use it now.
+- **Delivery truck ammo getting clawed back down**: `reload()`'s guard was
+  `ammo === effMagSize()` and `pickUpNearestPanel`'s ammo trickle was
+  `Math.min(effMagSize(), ammo + 1)` — both assumed ammo could never exceed
+  the normal mag cap. Once the delivery truck could push ammo to 150 (well
+  above `effMagSize()`'s ~12-30), pressing `R` or picking up a stray panel
+  right after a truck visit would silently reset ammo back down to the
+  normal cap. Fixed by changing the reload guard to `>=` (no-op once ammo is
+  already at or above cap) and the pickup trickle to clamp against
+  `Math.max(effMagSize(), ammo)` instead of `effMagSize()` alone.
 
 ## Testing notes (for whoever picks this up)
 
