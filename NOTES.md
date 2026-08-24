@@ -344,6 +344,46 @@ correct spawn position at each map's own origin, correct prop counts
 console errors on any of them, and the map picker correctly shows all
 four as unlocked/selectable.
 
+### Job-specific HUD, Job Hut on every map, 3x sprint (v22)
+
+Three small-to-medium requests landed together:
+- **Sprint 3x faster**: `SPRINT_SPEED` `9.0 → 27.0`, literal 3x per the
+  request. `upgrades.sprintMul` (the 500/1500-connected-panels milestone
+  bonus) still multiplies on top of that as before.
+- **Job Hut in every map**: `buildJobHut()` took two optional params
+  (`hx = JOB_HUT_X, hz = JOB_HUT_Z`) instead of reading the module-level
+  constants directly. Map 1's call is unchanged (always built, matching
+  the file's existing "city is always built regardless of MAP_ID"
+  precedent); Maps 2/3/4 each get one more call at
+  `<their own MAP*_ORIGIN> + JOB_HUT_OFFSET` (the same `{dx:-6, dz:30}`
+  relative offset the city already uses from its own spawn), gated behind
+  their own `MAP_ID === n` check so a sandbox map doesn't pay for a hut it
+  isn't using. Added a shared `nearJobHut(x,z,ox,oz)` exclusion check to
+  every sandbox map's prop-scatter loop (trees/pools/mesas/scrub) so
+  nothing spawns inside the new dome.
+- **Job-specific HUD counters**: both the side `panelCountEl` panel and
+  the bottom progress line in `hud` were unconditionally Solar's stats
+  (panels laid/connected, installed kW, inverters, kWh) even while playing
+  Plumber or Demolition. `updateHud()` now branches on `currentJob`:
+  Plumber shows heat pumps placed / taps flowing / switches on / MSWBs
+  powered / pipes-cables run; Demolition shows buildings scanned / charges
+  armed / buildings demolished / barriers placed / debris cleared (three
+  new counters added for this: `totalControlledDemolitions`,
+  `totalBarriersPlaced`, `totalDemoDebrisCleared`); anything else
+  (Solar, or no job yet) keeps the original panel-focused readout. Same
+  shape (a handful of `label: <b>number</b>` lines) for every job, just
+  different labels/numbers, matching the "same kind of counters, relevant
+  to the job at hand" request directly.
+
+Verified live: fresh `?map=3` load has 50 total `jobTileMeshes` (25 from
+the always-built city hut + 25 from the Swamp's own, correctly positioned
+near `MAP3_ORIGIN`); calling `updateHud()` directly via `window.__debug`
+after `setCurrentJob('plumber'|'demolition'|'solar')` produces the correct
+distinct HTML for both the side panel and the bottom line each time; no
+console errors on any map. Also investigated the earlier "Map 2 doesn't
+load" report as part of this pass — still not reproducible, see the v20
+entry above.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic

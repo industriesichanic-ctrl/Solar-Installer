@@ -41,7 +41,7 @@ const EYE_HEIGHT_CROUCH = 1.05;
 const PLAYER_RADIUS = 0.35;
 const GRAVITY = 24;
 const WALK_SPEED = 5.2;
-const SPRINT_SPEED = 9.0;
+const SPRINT_SPEED = 27.0; // 3x the original 9.0, per explicit request
 const CROUCH_SPEED = 2.6;
 const JUMP_SPEED = 7.6;
 const CROUCH_LERP = 12;
@@ -3012,6 +3012,7 @@ function fireDemoTool() {
       const idx = scraps.indexOf(scrapHits[0].object);
       if (idx >= 0) {
         const type = harvestScrapPickup(idx);
+        if (currentJob === 'demolition') totalDemoDebrisCleared++;
         showToast(`PICKED UP 1 ${type.toUpperCase()}`);
         return;
       }
@@ -3023,6 +3024,7 @@ function fireDemoTool() {
   const idx = salvageableRubble.findIndex((r) => r.mesh === hits[0].object);
   if (idx < 0) return;
   const type = harvestRubbleChunk(idx, 20);
+  if (currentJob === 'demolition') totalDemoDebrisCleared += 20;
   showToast(`BROKE UP RUBBLE — +20 ${type.toUpperCase()}`);
 }
 
@@ -5024,16 +5026,52 @@ function updateHud() {
   if (upgrades.weapon7Unlocked) weaponKeys.push('7');
   if (upgrades.demoToolUnlocked) weaponKeys.push('8');
   if (upgrades.gun0Unlocked) weaponKeys.push('0');
+  // the bottom progress line (connected-panel milestone stars) is a Solar-specific
+  // achievement track — only show it for Solar, replace it with a one-line summary
+  // relevant to whichever job is actually equipped otherwise
+  let bottomLine;
+  if (currentJob === 'plumber') {
+    const flowingTaps = taps.filter((t) => t.flowing).length;
+    bottomLine = `Heat pumps: <b>${totalHeatPumpsPlaced}</b> — Taps flowing: <b>${flowingTaps}</b>/${taps.length} — MSWBs powered: <b>${mswbs.filter((m) => m.breakerOn).length}</b>/${mswbs.length}${salvageLine}`;
+  } else if (currentJob === 'demolition') {
+    const armedCharges = Array.from(demolitionCharges.values()).reduce((s, a) => s + a.length, 0);
+    bottomLine = `Scanned: <b>${scannedBuildings.size}</b> — Charges armed: <b>${armedCharges}</b> — Demolished: <b>${totalControlledDemolitions}</b>${salvageLine}`;
+  } else {
+    bottomLine = `Connected: <b>${totalConnected}</b> ${stars} — ${progressMsg}${salvageLine}${map2Line}`;
+  }
   hud.innerHTML = `${weaponLine}<br>` +
     `${crouching ? '<span class="bad">crouched</span>' : 'standing'} · ${grounded ? 'grounded' : 'airborne'} · <span class="key" style="font-size:11px;">${weaponKeys.join('/')}</span> switch weapon<br>` +
-    `Connected: <b>${totalConnected}</b> ${stars} — ${progressMsg}${salvageLine}${map2Line}`;
-  const kw = (totalWattsInstalled / 1000).toFixed(2);
-  panelCountEl.innerHTML =
-    `Panels laid: <b>${totalPanelsPlaced}</b><br>` +
-    `Panels connected: <b>${totalConnected}</b><br>` +
-    `Installed capacity: <b>${kw} kW</b> · Cables: ${cables.length}<br>` +
-    `Inverters: <b>${inverters.length}</b><br>` +
-    `Total kWh produced: <b>${totalKwhProduced}</b>`;
+    bottomLine;
+
+  // side counter panel — same "at a glance" shape for every job, just the stats that
+  // actually matter for whichever one is equipped
+  if (currentJob === 'plumber') {
+    const flowingTaps = taps.filter((t) => t.flowing).length;
+    const onSwitches = elecSwitches.filter((s) => s.on).length;
+    const onMswbs = mswbs.filter((m) => m.breakerOn).length;
+    panelCountEl.innerHTML =
+      `Heat pumps placed: <b>${totalHeatPumpsPlaced}</b><br>` +
+      `Water taps flowing: <b>${flowingTaps}</b> / ${taps.length}<br>` +
+      `Switches on: <b>${onSwitches}</b> / ${elecSwitches.length}<br>` +
+      `MSWBs powered: <b>${onMswbs}</b> / ${mswbs.length}<br>` +
+      `Pipes/cables run: <b>${cables.length}</b>`;
+  } else if (currentJob === 'demolition') {
+    const armedCharges = Array.from(demolitionCharges.values()).reduce((s, a) => s + a.length, 0);
+    panelCountEl.innerHTML =
+      `Buildings scanned: <b>${scannedBuildings.size}</b><br>` +
+      `Charges armed: <b>${armedCharges}</b><br>` +
+      `Buildings demolished: <b>${totalControlledDemolitions}</b><br>` +
+      `Barriers placed: <b>${totalBarriersPlaced}</b><br>` +
+      `Debris cleared: <b>${totalDemoDebrisCleared}</b>`;
+  } else {
+    const kw = (totalWattsInstalled / 1000).toFixed(2);
+    panelCountEl.innerHTML =
+      `Panels laid: <b>${totalPanelsPlaced}</b><br>` +
+      `Panels connected: <b>${totalConnected}</b><br>` +
+      `Installed capacity: <b>${kw} kW</b> · Cables: ${cables.length}<br>` +
+      `Inverters: <b>${inverters.length}</b><br>` +
+      `Total kWh produced: <b>${totalKwhProduced}</b>`;
+  }
 }
 
 function animate() {
@@ -5362,8 +5400,11 @@ let selectedJobTile = null;
 // sitting on the counter (only Solar/Plumber get a real prop; locked jobs get a
 // grey placeholder block).
 const JOB_HUT_X = -6, JOB_HUT_Z = 30, JOB_HUT_R = 15;
-function buildJobHut() {
-  const hx = JOB_HUT_X, hz = JOB_HUT_Z, domeR = JOB_HUT_R;
+// same relative offset from a map's own spawn point every time, so every map's hut
+// sits in the same "just off to the side" spot the city's does
+const JOB_HUT_OFFSET = { dx: JOB_HUT_X, dz: JOB_HUT_Z };
+function buildJobHut(hx = JOB_HUT_X, hz = JOB_HUT_Z) {
+  const domeR = JOB_HUT_R;
 
   const floor = new THREE.Mesh(new THREE.CircleGeometry(domeR, 48), matPlaza);
   floor.rotation.x = -Math.PI / 2;
@@ -5436,7 +5477,13 @@ function buildJobHut() {
     jobTileMeshes.push({ mesh: desk, job, dx, dz, facing });
   });
 }
-buildJobHut();
+buildJobHut(); // Map 1's — always built, matches this file's existing "city is always
+                // built regardless of MAP_ID" precedent (see the MAP_ID comment up top)
+// every sandbox map gets its own Job Hut too, at the same relative offset from its own
+// spawn point — only built for whichever map is actually active
+if (MAP_ID === 2) buildJobHut(MAP2_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP2_ORIGIN.z + JOB_HUT_OFFSET.dz);
+if (MAP_ID === 3) buildJobHut(MAP3_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP3_ORIGIN.z + JOB_HUT_OFFSET.dz);
+if (MAP_ID === 4) buildJobHut(MAP4_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP4_ORIGIN.z + JOB_HUT_OFFSET.dz);
 
 function findJobTileUnderCrosshair() {
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
@@ -6113,6 +6160,9 @@ function triggerScreenShake(mag, dur = 0.5) { shakeMag = mag; shakeTime = dur; }
 const scannedBuildings = new Set();
 const demolitionCharges = new Map(); // building b -> [{ mesh }]
 const MAX_CHARGES_PER_BUILDING = 6;
+let totalControlledDemolitions = 0;
+let totalBarriersPlaced = 0;
+let totalDemoDebrisCleared = 0;
 const matBarrierPost = new THREE.MeshStandardMaterial({ color: 0xff8a1a, roughness: 0.6 });
 const matBarrierStripe = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
 const matChargeBody = new THREE.MeshStandardMaterial({ color: 0x1c1e21, roughness: 0.4, metalness: 0.5 });
@@ -6139,6 +6189,7 @@ function fireBarrier() {
   const hit = raycastWorldHit();
   if (!hit) return;
   placeBarrier(hit.point);
+  totalBarriersPlaced++;
 }
 
 let scanCooldown = 0;
@@ -6243,6 +6294,7 @@ function detonateCharges() {
   st.demolishing = true;
   st.fires = [];
   beginBuildingCollapse(b, st);
+  totalControlledDemolitions++;
   showDangerBanner('💥 CONTROLLED DEMOLITION — FIRE IN THE HOLE!');
 }
 
@@ -6396,10 +6448,17 @@ function buildSolarFarmMap() {
     if (Math.abs(tx - arrayCx) < 35 && Math.abs(tz - arrayCz) < 25) continue; // keep the array clear
     if (Math.abs(tx - hardstandCx) < 30 && Math.abs(tz - hardstandCz) < 20) continue; // keep the hardstand clear
     if (Math.hypot(tx - ox, tz - (oz + 6)) < 8) continue; // keep spawn clear
+    if (Math.hypot(tx - (ox + JOB_HUT_OFFSET.dx), tz - (oz + JOB_HUT_OFFSET.dz)) < JOB_HUT_R + 3) continue; // keep the Job Hut clear
     buildCuttableTree(tx, tz);
   }
 }
 if (MAP_ID === 2) buildSolarFarmMap();
+
+// shared by every sandbox map's scatter loops to keep props from spawning inside/on
+// top of that map's own Job Hut dome
+function nearJobHut(x, z, ox, oz) {
+  return Math.hypot(x - (ox + JOB_HUT_OFFSET.dx), z - (oz + JOB_HUT_OFFSET.dz)) < JOB_HUT_R + 3;
+}
 
 // ============================================================================
 // Map 3: Swamp and Map 4: Badlands — same lightweight sandbox shape as Map 2 (own
@@ -6429,6 +6488,7 @@ function buildSwampMap() {
   for (let i = 0; i < 22; i++) {
     const px = ox + rand(-220, 220), pz = oz + rand(-220, 220);
     if (Math.hypot(px - ox, pz - (oz + 6)) < 10) continue; // keep spawn clear
+    if (nearJobHut(px, pz, ox, oz)) continue;
     const pool = new THREE.Mesh(new THREE.CircleGeometry(rand(4, 11), 16), matSwampWater);
     pool.rotation.x = -Math.PI / 2;
     pool.position.set(px, 0.02, pz);
@@ -6441,6 +6501,7 @@ function buildSwampMap() {
   for (let i = 0; i < 140; i++) {
     const tx = ox + rand(-220, 220), tz = oz + rand(-220, 220);
     if (Math.hypot(tx - ox, tz - (oz + 6)) < 10) continue; // keep spawn clear
+    if (nearJobHut(tx, tz, ox, oz)) continue;
     buildCuttableTree(tx, tz, matDeadWood, matMoss);
   }
 
@@ -6472,6 +6533,7 @@ function buildBadlandsMap() {
   for (let i = 0; i < 26; i++) {
     const px = ox + rand(-220, 220), pz = oz + rand(-220, 220);
     if (Math.hypot(px - ox, pz - (oz + 6)) < 14) continue; // keep spawn clear
+    if (nearJobHut(px, pz, ox, oz)) continue;
     const h = rand(6, 16), r = rand(2.5, 5.5);
     const spire = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.7, r, h, 8), matMesa);
     spire.position.set(px, h / 2, pz);
@@ -6492,6 +6554,7 @@ function buildBadlandsMap() {
   for (let i = 0; i < 90; i++) {
     const tx = ox + rand(-220, 220), tz = oz + rand(-220, 220);
     if (Math.hypot(tx - ox, tz - (oz + 6)) < 10) continue; // keep spawn clear
+    if (nearJobHut(tx, tz, ox, oz)) continue;
     buildCuttableTree(tx, tz, matDryWood, matDryLeaf);
   }
 
@@ -6601,4 +6664,8 @@ window.__debug = {
   fireBarrier, fireScan, fireBreaker, fireCharge, detonateCharges, findBuildingContaining,
   buildingBoxes, megaBuildingBoxes, buildingFireState, getBuildingFireState, beginBuildingCollapse,
   triggerScreenShake, spawnDemolitionBlast,
+  totalControlledDemolitions: () => totalControlledDemolitions,
+  totalBarriersPlaced: () => totalBarriersPlaced,
+  totalDemoDebrisCleared: () => totalDemoDebrisCleared,
+  JOB_HUT_OFFSET, updateHud,
 };
