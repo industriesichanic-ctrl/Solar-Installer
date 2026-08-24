@@ -6,80 +6,100 @@ truth — this is a map of *why* things work the way they do, not a spec.
 
 ## Job Hut and jobs
 
-A small kiosk (`buildJobHut`, near spawn at `(-6, 0, 30)` — inside the
-always-clear `gx===0` road lane, so it doesn't need collision-avoidance
-placement logic the way randomly-scattered props do) with a 5×5 board of
-`JOBS` tiles, each an icon+name text sprite over a colored plaque
-(unlocked = green, locked = grey, `🔒` suffix). `JOBS` has all 25 entries the
-user asked for (brainstormed the remaining 23 beyond Solar/Plumber —
-aircon, heat pump, carpenter, playground, road builder, electrician,
-landscaper, painter, roofer, glazier, fence builder, bricklayer, concreter,
-telecom, streetlight tech, sign installer, irrigation, waste collector, pool
-builder, fountain builder, mural artist, demolition contractor, security/
-CCTV — each just `{ id, name, icon, unlocked: false }`), but only **Solar
-Installer** (the game's default loadout) and **Plumber** have `unlocked:
-true` and any actual gameplay behind them. The other 23 are deliberately
-inert — no unlock criteria invented for them, since the ask was explicit:
-"no need to code the other jobs now."
+**No job, no tools.** `currentJob` starts `null`, and on Map 1 (the city;
+Map 2 has no Job Hut so it's exempt) that's enforced at every entry point:
+`fire()` returns immediately if `currentJob === null`, the `mousedown`
+listener returns before any per-weapon branch, and the `Digit*` keys are
+inert with a toast — all gated on `MAP_ID === 1 && currentJob === null`.
+Every weapon-1-4 view model (`gunGroup`, `cableGunGroup`, etc., and the four
+new plumbing ones below) starts with `.visible = false` at construction, and
+`setWeapon()`'s visibility block is keyed off `currentJob` for slots 1-4
+specifically (`solarJob && w === 1`, etc.) — slots 5+ stay job-agnostic
+universal tools (Water Gun, shop purchases, Demo Tool, gun 0), gated by
+their own existing unlock flags instead.
 
-Selection reuses the Salvage Yard weapon shop's exact interaction pattern:
-`findJobTileUnderCrosshair()` intercepts `mousedown` globally (added right
-after the shop intercept, same structure) so it works regardless of the
-current weapon, but only when actually aiming at a tile. RMB → `selectJobTile`
-(toasts if locked), LMB with something selected → `confirmJobSelection`,
-which sets `currentJob`, calls `setWeapon(1)` so the new toolkit is
-immediately visible, and pops a milestone banner.
+### The dome (rotunda)
 
-### Plumbing job
+`buildJobHut()` — a large **open rotunda** at `(-6, 0, 30)`, radius
+`JOB_HUT_R` (15): 16 pillars in a ring (`addWallBox` per pillar — wide gaps
+between them, easy to walk through, no doorway needed) holding up a
+half-sphere dome (`SphereGeometry` clipped to `phiLength/thetaLength` for
+just the top hemisphere). No walls at all, so "walk inside" needed no doorway
+cut into solid geometry — simplest way to get a genuinely large interior
+space without new geometry-cutting code. **25 desks** line the inner ring
+(`deskR = domeR - 3.5`), each facing the dome's center, with a clerk
+(`buildPerson`) standing behind it, a small colored sample block on the
+counter (green solar-panel-material for Solar, copper-pipe-material for
+Plumber, grey for the 23 locked jobs), and the same icon+name label sprite
+as before. `JOBS` still has all 25 entries (brainstormed the 23 beyond
+Solar/Plumber: aircon, heat pump, carpenter, playground, road builder,
+electrician, landscaper, painter, roofer, glazier, fence builder,
+bricklayer, concreter, telecom, streetlight tech, sign installer,
+irrigation, waste collector, pool builder, fountain builder, mural artist,
+demolition contractor, security/CCTV) but only Solar and Plumber have
+`unlocked: true` — the rest are deliberately inert, no invented unlock
+criteria, per explicit instruction.
 
-`currentJob === 'plumber'` re-purposes weapons 1 and 4 (mirrors Solar's own
-Panel Gun/Inverter Gun) while weapons 2 and 3 (Cable Gun/Router) need **zero**
-job-specific code — they already operate on the generic anchor/`cables`
-system, which was extended with four more anchor types exactly the way
-`battery`/`switchboard` were earlier (`findNearestAnchor`, `anchorThickness`,
-`unwireAnchor`'s generic `wiredCables.delete`, `isAnchorElectrified` all
-picked up `fixture`/`tap`/`heatpump`/`watermain` with the same few-line
-pattern):
-- **Weapon 1 → Fixture Gun** (`fireFixture`/`placeFixture`): places a
-  `fixtures[]` entry, grid-snapped exactly like `placePanel` (same
-  `getFixturePlacementTarget`/`isFixtureSpotFree` structure, `FIXTURE_SIZE =
-  PANEL_SIZE`) but with none of the panel-specific side effects (no
-  wattage, no tier, no streak banners, no area-tool/block-place unlock
-  checks) — "same placement mechanics as the solar panels" without dragging
-  in Solar's own progression hooks.
-- **Weapon 2/3** — unchanged Cable Gun/Router. A run is rendered as a pipe
-  instead of dual red/black cable strands whenever either end of the cable
-  is one of the four plumbing anchor types (`rebuildCableMesh`'s `pipe` flag,
-  checked the same way the existing `heavy` inverter-to-inverter flag is) —
-  one solid `matPipeCopper` cylinder, reusing the same `flexUnitGeo` the
-  heavy-cable style already uses.
-- **Weapon 4 → Tap Gun** (`fireTap`/`placeTap`): places a `taps[]` entry,
-  grid-snapped like a single-tier Inverter Gun (reuses
-  `findInverterPlacementHit`/`INVERTER_STEP`/`INVERTER_SNAP_RADIUS` — no
-  merging, just one tier). `E` (`handleInteractKey`, which already checks
-  rubble first) now also checks `toggleTapUnderCrosshair()` before falling
-  back to the inverter switch, so `E` correctly does "whichever of
-  rubble/tap/inverter you're aiming at" depending on context.
-- **Heat pumps**: every previously-decorative `buildHvacUnit` (wall *and*
-  roof scatters, 20 total) now also pushes into a `heatPumps[]` array with
-  the same `{mesh, pos, normal, wiredCables}` shape every other anchor has —
-  turning existing world dressing into plumbing targets for free.
+Selection is unchanged from before: `findJobTileUnderCrosshair()` intercepts
+`mousedown` globally (same pattern as the Salvage Yard weapon shop, added
+right after that intercept) — RMB aims/selects a desk (`selectJobTile`,
+toasts if locked), LMB with something selected confirms
+(`confirmJobSelection`), which sets `currentJob`, forces `setWeapon(1)` to
+actually re-run (`currentWeapon = -1` first, since `setWeapon` no-ops when
+`w === currentWeapon` and it's already `1` on a fresh spawn) so the new
+toolkit becomes visible immediately, and pops a milestone banner.
+
+### Plumbing loadout
+
+Slots 1 and 4 are genuinely new tools with their own view models
+(`hpGunGroup`, `pipeGunGroup`, `pipeRouterGroup`, `switchGunGroup` — visually
+distinct from Solar's guns per "make their guns different please", not just
+palette swaps of the same meshes) and slots 2/3 are Solar's *own* Cable
+Gun/Router **completely unmodified**, just relabeled in the HUD — the
+anchor/`cables` system already handles `heatpump`/`tap`/`watermain` anchors
+generically (extended the same few-line way `battery`/`switchboard` were
+earlier: `findNearestAnchor`, `anchorThickness`, `unwireAnchor`'s generic
+`wiredCables.delete`, `isAnchorElectrified`), and a pipe is just a cable
+rendered as one solid `matPipeCopper` cylinder instead of dual red/black
+strands (`rebuildCableMesh`'s `pipe` flag, checked the same way the existing
+`heavy` inverter-to-inverter flag is).
+- **1: HP Gun** (`fireHeatPumpTank`/`placeHeatPumpTank`) — places a heat
+  pump tank, grid-snapped exactly like `placePanel` (mirrors its structure:
+  `getHeatPumpPlacementTarget`/`isHeatPumpSpotFree`), same 12-round magazine
+  as the Solar Panel Gun (just the shared `ammo`/`MAG_SIZE` — no separate
+  plumbing magazine needed). Pushes into the **same** `heatPumps[]` array
+  every previously-decorative `buildHvacUnit` (wall *and* roof scatters, 20
+  in the current world) already populates, so player-placed tanks and
+  existing world-dressing HVAC units are indistinguishable as anchors.
+- **2: Pipe Gun / 3: Pipe Router** — literally `cableClick`/`cableRightClick`/
+  `routerLeftDown` etc., zero new code, just a job-aware HUD label branch in
+  `updateHud`.
+- **4: Power Switch** (`fireTap`/`placeTap`, internal names kept from an
+  earlier "tap" design — see bug history for why a full rename felt too
+  risky to do blind) — placement is gated by `getPowerSwitchPlacementTarget`,
+  which only returns a target if some `heatPumps[]` entry is within
+  `POWER_SWITCH_RANGE` (1m) of the aimed wall point; otherwise `fireTap`
+  toasts "MUST BE PLACED WITHIN 1M OF A HEAT PUMP" and places nothing. `E`
+  (`handleInteractKey`, which already checks rubble first) also checks
+  `toggleTapUnderCrosshair()` before falling back to the inverter switch.
 - **Water mains**: one `buildWaterMain` pipe-stub-and-cap prop per building
-  (`waterMains[]`, 48 in the current world), placed just outside each
-  building's `minX` face — "little clumps near every building."
+  (`waterMains[]`), placed just outside each building's `minX` face —
+  "little clumps near every building."
 - **Flow check**: `isTapNetworkComplete(tap)` is a component-wide BFS across
   `cables` (same fidelity as `isSwitchboardEnergized` — not strict path
   tracing) requiring the connected component to contain both a `heatpump`
-  and a `watermain` anchor. `updateTapFlow()` re-checks every tap (called
+  and a `watermain` anchor. `updateTapFlow()` re-checks every switch (called
   after `finishCable`, and via the generalized `unwireAnchor` after
-  `destroyCable`) and, on a tap whose `.on` is true newly satisfying that,
-  turns its handle green and pops a "WATER FLOWING" banner.
+  `destroyCable`) and, on one whose `.on` is true newly satisfying that,
+  turns its indicator green and pops a "WATER FLOWING" banner.
 
-Verified live end-to-end: placed a fixture, wired heat pump → fixture → tap,
-confirmed `isTapNetworkComplete` correctly read `false` before a water main
-was wired and `true` immediately after, `updateTapFlow` flipped `tap.flowing`
-and fired the banner, and a wired pipe segment rendered as a single copper
-cylinder rather than dual strands.
+Verified live end-to-end: `currentJob` starts `null` and both firing and
+weapon-switching are correctly inert until a job is picked; picking Plumber
+at a desk correctly sets `currentJob`; the HP Gun places a tank and
+correctly spends 1/12 ammo; `getPowerSwitchPlacementTarget` correctly
+returns `null` far from any heat pump and a valid target within 1m;
+`isTapNetworkComplete` reads `false` before a water main is wired and `true`
+right after; and Solar (placing panels) is unaffected as a regression check.
 
 ## Mobile / touch controls
 
@@ -774,6 +794,19 @@ already-owned item both just toast and leave state untouched.
 
 ## Bug history worth knowing (don't reintroduce these)
 
+- **(Avoided, not hit) TDZ trap building the plumbing view models**: the
+  weapon view-model groups (`hpGunGroup` etc.) are built as top-level code
+  that runs immediately at module load — not deferred inside a function like
+  most gameplay logic is. A first draft referenced `matTapBody`, which is
+  declared much later in the file inside the Plumbing job toolset section;
+  since top-level `const` initializes in top-to-bottom execution order (no
+  hoisting benefit the way function declarations get), that would have been
+  a `ReferenceError` on every page load. Caught before testing by tracing
+  where each material referenced from view-model code was actually
+  declared; fixed by inlining a fresh `MeshStandardMaterial` instead of
+  reaching for the later constant. Worth remembering any time new top-level
+  (not function-body) code reuses a `const` — check it's declared *earlier*
+  in the file, not just declared *somewhere*.
 - **Duplicate `const matRoad` — whole game fails to load**: the loop-road
   code declared its own `const matRoad` without checking one already existed
   (line 132, used for the central cross roads). A duplicate top-level
