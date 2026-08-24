@@ -238,15 +238,20 @@ function buildBuilding(def) {
   placementSurfaces.push(body);
   const wallRef = addWallBox(minX, maxX, minZ, maxZ, 0, h);
 
-  // simple window strips for visual read
+  // simple window strips for visual read — also doubles as the building's "floors" for
+  // the pancake-collapse demolition sequence (see beginBuildingCollapse/updateBuildingCollapse)
   const winMat = new THREE.MeshStandardMaterial({ color: 0x2a3a44, roughness: 0.3, metalness: 0.4, emissive: 0x0b1a22, emissiveIntensity: 0.3 });
   const rows = Math.max(1, Math.floor(h / 3.2));
+  const windowMeshes = [];
   for (let r = 0; r < rows; r++) {
     const wy = 1.8 + r * 3.2;
     if (wy > h - 1) break;
     const band = new THREE.Mesh(new THREE.BoxGeometry(w * 0.96, 0.7, d * 0.96 + 0.02), winMat);
     band.position.set(cx, wy, cz);
+    band.castShadow = true;
+    band.receiveShadow = true;
     scene.add(band);
+    windowMeshes.push(band);
   }
 
   // flat roof, slightly inset so its edges read visually, and a low parapet lip
@@ -264,12 +269,14 @@ function buildBuilding(def) {
   const parapetH = 0.5;
   const t = 0.25;
   const gapW = 2.6;
+  const parapetMeshes = [];
   const mkParapet = (pw, pd, px, pz) => {
     const p = new THREE.Mesh(new THREE.BoxGeometry(pw, parapetH, pd), matRoof);
     p.position.set(px, h + parapetH / 2 + 0.4, pz);
     p.castShadow = true;
     scene.add(p);
-    addWallBox(px - pw / 2, px + pw / 2, pz - pd / 2, pz + pd / 2, h + 0.4, h + parapetH + 0.4);
+    const wallBox = addWallBox(px - pw / 2, px + pw / 2, pz - pd / 2, pz + pd / 2, h + 0.4, h + parapetH + 0.4);
+    parapetMeshes.push({ mesh: p, wallBox });
   };
   const mkParapetWithGap = (alongZAxis, fixedCoord, rangeMin, rangeMax) => {
     const gapCenter = (rangeMin + rangeMax) / 2;
@@ -288,7 +295,7 @@ function buildBuilding(def) {
   if (stairSide === 'minX') mkParapetWithGap(true, minX - t / 2, minZ, maxZ); else mkParapet(t, d, minX - t / 2, cz);
   if (stairSide === 'maxX') mkParapetWithGap(true, maxX + t / 2, minZ, maxZ); else mkParapet(t, d, maxX + t / 2, cz);
 
-  return { minX, maxX, minZ, maxZ, topY: h, bodyMesh: body, wallRef };
+  return { minX, maxX, minZ, maxZ, topY: h, bodyMesh: body, wallRef, roofMesh: roof, windowMeshes, parapetMeshes };
 }
 
 const buildingBoxes = BUILDING_DEFS.map(buildBuilding);
@@ -2177,10 +2184,9 @@ function igniteObject(type, obj) {
 // mounted on lights 2 more of its pre-mapped wall/roof fire blocks per tick — several
 // ticks are needed before the whole building is alight. Once fully engulfed it then
 // disappears in visible steps, one every 15s, ending as a rubble pile.
-const buildingFireState = new Map(); // buildingBox -> { blocks, litCount, demolishing, demolishTimer, demolishStep, rubbleSpawned }
+const buildingFireState = new Map(); // buildingBox -> { blocks, litCount, demolishing, collapsing, floorGroups, floorIdx, pileTop, rubbleSpawned }
 const SPREAD_INTERVAL = 15;
 const BUILDING_BLOCKS_PER_TICK = 2;
-const DEMOLISH_STEPS = 6; // building disappears over DEMOLISH_STEPS * SPREAD_INTERVAL seconds
 
 // evenly-spaced points across all 4 walls + the roof, sized roughly like a panel's
 // footprint apart — this is what actually lights up tick by tick, not random spots
@@ -2212,7 +2218,7 @@ function computeBuildingBlocks(b) {
 function getBuildingFireState(b) {
   let st = buildingFireState.get(b);
   if (!st) {
-    st = { blocks: computeBuildingBlocks(b), litCount: 0, demolishing: false, demolishTimer: 0, demolishStep: 0, rubbleSpawned: false };
+    st = { blocks: computeBuildingBlocks(b), litCount: 0, demolishing: false, collapsing: false, rubbleSpawned: false };
     buildingFireState.set(b, st);
   }
   return st;
@@ -2229,9 +2235,8 @@ function advanceBuildingFire(b) {
   }
   if (st.litCount >= st.blocks.length) {
     st.demolishing = true;
-    st.demolishTimer = 0;
-    st.demolishStep = 0;
     showDangerBanner('🔥 BUILDING FULLY ALIGHT — COLLAPSING');
+    beginBuildingCollapse(b, st);
   }
 }
 
@@ -2275,26 +2280,77 @@ function collapseInstalledEquipment(b) {
   });
 }
 
-function finishDemolition(b, st) {
-  st.rubbleSpawned = true;
+// approximate vertical thickness of a box-geometry mesh at its current scale — used to
+// figure out how tall each "floor" is once it lands, so the next one stacks on top of it
+function meshThickness(mesh) {
+  const params = mesh.geometry && mesh.geometry.parameters;
+  const h = (params && params.height) || 0.5;
+  return h * mesh.scale.y;
+}
+
+// the roof+parapets fall together as the topmost floor, then each window-band row falls
+// (top row first, since that's what a real floor-by-floor pancake collapse would do),
+// and the building shell itself falls last, flattened down into a floor-thick slab so it
+// doesn't land as one giant box
+function buildCollapseFloors(b) {
+  const floors = [];
+  const topGroup = [b.roofMesh, ...b.parapetMeshes.map((pm) => pm.mesh)].filter(Boolean);
+  if (topGroup.length) floors.push(topGroup);
+  [...b.windowMeshes].reverse().forEach((wm) => floors.push([wm]));
   if (b.bodyMesh) {
-    scene.remove(b.bodyMesh);
-    const pi = placementSurfaces.indexOf(b.bodyMesh);
-    if (pi >= 0) placementSurfaces.splice(pi, 1);
-    const wi = worldMeshes.indexOf(b.bodyMesh);
-    if (wi >= 0) worldMeshes.splice(wi, 1);
+    b.bodyMesh.scale.y = 0.15;
+    b.bodyMesh.position.y = b.topY - (b.topY * 0.15) / 2;
+    floors.push([b.bodyMesh]);
   }
+  return floors;
+}
+
+// once the walls/roof are gone, the remaining structure (roof, parapets, floor bands,
+// and finally the shell itself) drops floor by floor, each one landing on top of the
+// last, until the whole building has pancaked down into one walkable rubble pile
+function beginBuildingCollapse(b, st) {
+  if (b.roofMesh) {
+    const gi = groundColliders.indexOf(b.roofMesh);
+    if (gi >= 0) groundColliders.splice(gi, 1);
+    const pi = placementSurfaces.indexOf(b.roofMesh);
+    if (pi >= 0) placementSurfaces.splice(pi, 1);
+  }
+  b.parapetMeshes.forEach((pm) => {
+    const ci = wallColliders.indexOf(pm.wallBox);
+    if (ci >= 0) wallColliders.splice(ci, 1);
+  });
   if (b.wallRef) {
     const ci = wallColliders.indexOf(b.wallRef);
     if (ci >= 0) wallColliders.splice(ci, 1);
   }
+  if (b.bodyMesh) {
+    const wi = worldMeshes.indexOf(b.bodyMesh);
+    if (wi >= 0) worldMeshes.splice(wi, 1);
+    const pi = placementSurfaces.indexOf(b.bodyMesh);
+    if (pi >= 0) placementSurfaces.splice(pi, 1);
+  }
+
   collapseInstalledEquipment(b);
+
+  st.floorGroups = buildCollapseFloors(b);
+  st.floorIdx = 0;
+  st.pileTop = 0;
+  st.fallVy = 0;
+  st.fallOffset = 0;
+  st.groupStartY = st.floorGroups.length ? st.floorGroups[0].map((m) => m.position.y) : [];
+  st.collapsing = st.floorGroups.length > 0;
+  if (!st.collapsing) finishDemolition(b, st);
+}
+
+function finishDemolition(b, st) {
+  st.rubbleSpawned = true;
+  st.collapsing = false;
   const midX = (b.minX + b.maxX) / 2, midZ = (b.minZ + b.maxZ) / 2;
   const pileRadius = Math.max(2, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) / 2);
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 6; i++) {
     const a = Math.random() * Math.PI * 2, rr = Math.random() * pileRadius;
-    const rubble = new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.6, 1.6)), matScrap);
-    rubble.position.set(midX + Math.cos(a) * rr, rand(0.3, 1.2), midZ + Math.sin(a) * rr);
+    const rubble = new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.5, 1.2)), matScrap);
+    rubble.position.set(midX + Math.cos(a) * rr, st.pileTop + rand(0.3, 0.9), midZ + Math.sin(a) * rr);
     rubble.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
     rubble.castShadow = true;
     rubble.receiveShadow = true;
@@ -2303,21 +2359,43 @@ function finishDemolition(b, st) {
   }
 }
 
-// disappears in discrete steps, one every SPREAD_INTERVAL seconds, instead of a
-// smooth continuous shrink — matches the same 15s cadence the fire spreads on
-function updateBuildingDemolition(dt) {
+// per-frame: whichever floor is currently falling accelerates under gravity until its
+// lowest point reaches the top of the pile so far, then it's added to the walkable
+// rubble and the next floor up starts its fall — a sequential pancake collapse rather
+// than the whole building vanishing/shrinking at once
+function updateBuildingCollapse(dt) {
+  const GRAVITY = 26;
   buildingFireState.forEach((st, b) => {
-    if (!st.demolishing || st.rubbleSpawned) return;
-    st.demolishTimer += dt;
-    if (st.demolishTimer < SPREAD_INTERVAL) return;
-    st.demolishTimer -= SPREAD_INTERVAL;
-    st.demolishStep++;
-    const remaining = Math.max(0, 1 - st.demolishStep / DEMOLISH_STEPS);
-    if (b.bodyMesh) {
-      b.bodyMesh.scale.y = Math.max(0.02, remaining);
-      b.bodyMesh.position.y = (b.topY * remaining) / 2;
+    if (!st.collapsing || st.rubbleSpawned) return;
+    const group = st.floorGroups[st.floorIdx];
+    st.fallVy += GRAVITY * dt;
+    st.fallOffset += st.fallVy * dt;
+    const thickness = Math.max(...group.map(meshThickness));
+    const minStartY = Math.min(...st.groupStartY);
+    const landY = st.pileTop + thickness / 2;
+    let offset = st.fallOffset;
+    let landed = false;
+    if (minStartY - offset <= landY) {
+      offset = minStartY - landY;
+      landed = true;
     }
-    if (st.demolishStep >= DEMOLISH_STEPS) finishDemolition(b, st);
+    group.forEach((m, i) => { m.position.y = st.groupStartY[i] - offset; });
+    if (landed) {
+      group.forEach((m) => {
+        m.rotation.x += (Math.random() - 0.5) * 0.25;
+        m.rotation.z += (Math.random() - 0.5) * 0.25;
+        groundColliders.push(m);
+      });
+      st.pileTop += thickness;
+      st.floorIdx++;
+      st.fallVy = 0;
+      st.fallOffset = 0;
+      if (st.floorIdx >= st.floorGroups.length) {
+        finishDemolition(b, st);
+      } else {
+        st.groupStartY = st.floorGroups[st.floorIdx].map((m) => m.position.y);
+      }
+    }
   });
 }
 
@@ -2345,7 +2423,7 @@ function updateFireSpread(dt) {
     p.spreadTimer = (p.spreadTimer || 0) + dt;
     if (p.spreadTimer >= SPREAD_INTERVAL) { p.spreadTimer -= SPREAD_INTERVAL; spreadTick('panel', p); }
   });
-  updateBuildingDemolition(dt);
+  updateBuildingCollapse(dt);
 }
 
 // spraying a burning-but-switched-off inverter finally, safely tears it down
@@ -3026,7 +3104,7 @@ window.__debug = {
   extinguishInverter, extinguishPanel, isPanelElectrified, isAnchorElectrified, electrocutePlayer,
   destroyLiveInverterHit, destroyLivePanelHit, raycastWaterTarget, waterSprayTick, updateWaterGun,
   spreadTick, updateFireSpread, findBuildingContaining, igniteObject,
-  advanceBuildingFire, getBuildingFireState, updateBuildingDemolition, buildingFireState,
+  advanceBuildingFire, getBuildingFireState, updateBuildingCollapse, buildingFireState,
   salvageCleric, updateCleriSigns,
   SCRAP_UNLOCK_CABLE, SCRAP_UNLOCK_PANEL,
   removeFireEffect,
