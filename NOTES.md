@@ -544,6 +544,32 @@ real irregular geometry; `cyclePlantType()` advances correctly; Map 1
 (city) still loads cleanly with the newly-unlocked jobs present; no
 console errors on any map.
 
+### "City buildings on the swamp/badlands" — actually the Job Hut's city-beige palette (v27)
+
+User sent a screenshot from Swamp spawn showing what looked exactly like
+flat-roofed city buildings through the green fog. Investigated by
+traversing the live scene graph and measuring every mesh within 250 units
+of the Swamp's hut: zero tall/building-sized boxes anywhere near it — the
+only large structure present was the Swamp's own single Job Hut dome
+(`SphereGeometry` radius 12.8, positioned exactly where `buildSmallJobHut`
+puts it). The actual bug: `buildHutCircle` had always used the *city's*
+`pillarMat`/`domeMat`/`matPlaza` — a warm beige/tan palette designed to
+match the city's own buildings — for every hut on every map, including
+the sandbox ones. Through Swamp's murky fog, that same city-beige dome +
+16 pillars reads exactly like city buildings, even though not one polygon
+of actual city geometry is anywhere near it (confirmed: city's buildings
+are all within a 280×280 area at the origin, 6000 units from Swamp).
+
+Fix: `buildHutCircle`/`buildSmallJobHut` now take an optional `theme`
+param (`HUT_THEMES.city` default, unchanged beige for Map 1/2) —
+`HUT_THEMES.swamp` (dark weathered wood pillars, mossy green dome canvas,
+mud-matched floor) and `HUT_THEMES.badlands` (sun-bleached timber
+pillars, tan canvas dome, sand-matched floor) get passed in for those two
+maps' `buildSmallJobHut` calls. Verified live: Swamp's dome now reads
+`#3f5240` (was city's `#d8d0c0`) and pillars `#4a3f2e` (was `#c9c0ab`);
+Badlands' dome reads `#d9a86a`; Map 1's city hut is unchanged; no console
+errors on any map.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic

@@ -5641,11 +5641,27 @@ function buildStairRamp(x0, y0, z0, x1, y1, z1, width) {
   return ramp;
 }
 
-function buildHutCircle(cx, cz, awayAngle, jobsList) {
+// per-map material themes — the Job Hut originally shared the city's own beige palette,
+// which reads as "just more city buildings" through the Swamp/Badlands' fog since it's
+// the same warm tan/grey tone; each sandbox map gets its own weathered look instead
+const HUT_THEMES = {
+  city: { pillar: pillarMat, dome: domeMat, floor: matPlaza },
+  swamp: {
+    pillar: new THREE.MeshStandardMaterial({ color: 0x4a3f2e, roughness: 0.9 }), // weathered dark wood
+    dome: new THREE.MeshStandardMaterial({ color: 0x3f5240, roughness: 0.7, side: THREE.DoubleSide }), // mossy green canvas
+    floor: new THREE.MeshStandardMaterial({ color: 0x3a3327, roughness: 1.0 }), // matches the mud ground
+  },
+  badlands: {
+    pillar: new THREE.MeshStandardMaterial({ color: 0x8a6a45, roughness: 0.85 }), // sun-bleached timber
+    dome: new THREE.MeshStandardMaterial({ color: 0xd9a86a, roughness: 0.6, side: THREE.DoubleSide }), // canvas/tarp tan
+    floor: new THREE.MeshStandardMaterial({ color: 0xc78f4f, roughness: 1.0 }), // matches the sand ground
+  },
+};
+function buildHutCircle(cx, cz, awayAngle, jobsList, theme = HUT_THEMES.city) {
   const domeR = JOB_HUT_R;
   const gapHalfAngle = (30 * Math.PI) / 180; // 60°-wide wedge left open toward the other circle
 
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(domeR, 48), matPlaza);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(domeR, 48), theme.floor);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(cx, 0.02, cz);
   floor.receiveShadow = true;
@@ -5661,13 +5677,13 @@ function buildHutCircle(cx, cz, awayAngle, jobsList) {
     if (da > Math.PI) da = Math.PI * 2 - da;
     if (da < gapHalfAngle) continue; // leave the connecting wedge clear of pillars
     const px = cx + Math.cos(a) * domeR, pz = cz + Math.sin(a) * domeR;
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.4, 6, 10), pillarMat);
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.4, 6, 10), theme.pillar);
     pillar.position.set(px, 3, pz);
     pillar.castShadow = true;
     scene.add(pillar);
     addWallBox(px - 0.35, px + 0.35, pz - 0.35, pz + 0.35, 0, 6);
   }
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(domeR + 0.8, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2), domeMat);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(domeR + 0.8, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2), theme.dome);
   dome.position.set(cx, 6, cz);
   dome.castShadow = true;
   scene.add(dome);
@@ -5778,9 +5794,9 @@ buildJobHut(); // Map 1's — always built, matches this file's existing "city i
 // a single-dome, 5-desk Job Hut for a sandbox map — reuses buildHutCircle exactly like
 // the figure-8 does, just with one circle instead of two, and its "away" angle aimed
 // so the pillar-free entrance wedge faces the map's own spawn point
-function buildSmallJobHut(hx, hz, spawnX, spawnZ, jobIds) {
+function buildSmallJobHut(hx, hz, spawnX, spawnZ, jobIds, theme = HUT_THEMES.city) {
   const awayAngle = Math.atan2(hz - spawnZ, hx - spawnX);
-  buildHutCircle(hx, hz, awayAngle, jobIds);
+  buildHutCircle(hx, hz, awayAngle, jobIds, theme);
   const doorSign = makeTextSprite('JOB HUT', { fontSize: 60, color: '#ffd54a', border: '#ff9a4d', scale: 1.1 });
   doorSign.position.set(hx, 8.2, hz);
   scene.add(doorSign);
@@ -5789,8 +5805,8 @@ const SWAMP_HUT_JOBS = ['landscaper', 'irrigation', 'waste', 'arborist', 'ecolog
 const BADLANDS_HUT_JOBS = ['structuralengineer', 'fencer', 'lampfixer', 'roadbuilder', 'surveyor'];
 // Map 2 keeps the full 25-job figure-8 hut; Maps 3/4 get their own themed 5-job hut
 if (MAP_ID === 2) buildJobHut(MAP2_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP2_ORIGIN.z + JOB_HUT_OFFSET.dz);
-if (MAP_ID === 3) buildSmallJobHut(MAP3_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP3_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP3_ORIGIN.x, MAP3_ORIGIN.z + 6, SWAMP_HUT_JOBS);
-if (MAP_ID === 4) buildSmallJobHut(MAP4_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP4_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP4_ORIGIN.x, MAP4_ORIGIN.z + 6, BADLANDS_HUT_JOBS);
+if (MAP_ID === 3) buildSmallJobHut(MAP3_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP3_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP3_ORIGIN.x, MAP3_ORIGIN.z + 6, SWAMP_HUT_JOBS, HUT_THEMES.swamp);
+if (MAP_ID === 4) buildSmallJobHut(MAP4_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP4_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP4_ORIGIN.x, MAP4_ORIGIN.z + 6, BADLANDS_HUT_JOBS, HUT_THEMES.badlands);
 
 function findJobTileUnderCrosshair() {
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
