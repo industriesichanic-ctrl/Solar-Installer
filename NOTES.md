@@ -496,6 +496,54 @@ hut center (previously some did clip the domes); Solar's desk now sits at
 Map 3 (Swamp) still builds cleanly with the same hoisted constants; no
 console errors anywhere.
 
+### Swamp/Badlands themed Job Huts + Landscaper job (v26)
+
+Swamp and Badlands no longer share the city's full 25-job figure-8 hut —
+each gets its own single-dome, 5-job hut (`buildSmallJobHut`, reusing
+`buildHutCircle` with one circle instead of two, its "away" angle aimed so
+the entrance faces that map's own spawn point):
+- **Swamp** (`SWAMP_HUT_JOBS`): Landscaper (real toolset), Irrigation,
+  Waste Collector, and two new placeholder jobs — Arborist and Wetland
+  Ecologist (both `unlocked: true`, no tools built yet, matches "we can
+  work on the gun loadout later").
+- **Badlands** (`BADLANDS_HUT_JOBS`): Structural Engineer (real toolset,
+  brand new job), Fence Builder, Streetlight Technician, Road Builder, and
+  a new placeholder — Surveyor.
+- Several existing locked jobs (`irrigation`, `waste`, `fencer`,
+  `lampfixer`, `roadbuilder`) flipped to `unlocked: true` so they can
+  actually appear as selectable (if toolless) desks in these huts.
+
+**Landscaper** (real, 4 slots, mirrors Demolition's single-action-per-slot
+shape): Digging Gun (cosmetic dark blob-shaped pit decal —
+`buildBlobGeometry`, no real terrain deformation since the ground is a
+flat plane), Dirt Fill Gun (LMB raises a squashed-dodecahedron mound
+pushed into `landscapeMounds[]`; RMB aimed at a pond removes it from
+`pondMeshes[]`), Shaping Tool (LMB/RMB grow/shrink the nearest mound in
+range), Planting Tool (RMB cycles `plantType` Tree→Bush→Grass, LMB places
+it — Tree reuses `buildCuttableTree`, Bush is a new `buildShrub` — a
+small cluster of `IcosahedronGeometry` clumps — Grass is a new
+`buildGrassPatch` flat circle).
+
+**Structural Engineer** (real, 2 slots): Wall Gun (places a wall segment,
+adds both a `groundCollider` and a `wallColliders` box — "keeps roaming
+animals out"), Lightpost Gun (pole + glowing lamp + a real `PointLight`).
+
+Swamp's own environment got a pass too: ponds are now irregular blobs
+(`buildBlobGeometry`, 12-sided with ±50% radius jitter) instead of perfect
+circles, darkened to `#1e3a2e`; ~94% of its 109 trees got a random ±0.22
+rad trunk/leaf tilt (`buildCuttableTree` now returns its `{trunk,leaves,
+wallBox}` instead of nothing, so the trunk material's mostly-unused return
+value could finally be used) for a "kinda misshapen" look; added 60 small
+multi-clump shrubs via the same `buildShrub` the Planting Tool uses.
+
+Verified live on fresh `?map=3`/`?map=4` loads: Swamp's hut lists exactly
+`[landscaper, irrigation, waste, arborist, ecologist]`, Badlands' lists
+exactly `[structuralengineer, fencer, lampfixer, roadbuilder, surveyor]`;
+103/109 swamp trees carry a nonzero tilt; `buildBlobGeometry` produces
+real irregular geometry; `cyclePlantType()` advances correctly; Map 1
+(city) still loads cleanly with the newly-unlocked jobs present; no
+console errors on any map.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic

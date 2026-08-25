@@ -1729,6 +1729,84 @@ const chargeGunGroup = new THREE.Group();
 chargeGunGroup.position.set(0.22, -0.2, -0.4);
 chargeGunGroup.visible = false;
 camera.add(chargeGunGroup);
+
+// ---------- Landscaper view models (slots 1-4) ----------
+const digGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const blade = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 4), new THREE.MeshStandardMaterial({ color: 0x8a8f96, metalness: 0.6, roughness: 0.35 }));
+  blade.rotation.x = Math.PI / 2;
+  blade.rotation.y = Math.PI / 4;
+  blade.position.set(0, 0, -0.3);
+  digGunGroup.add(body, blade);
+}
+digGunGroup.position.set(0.22, -0.2, -0.4);
+digGunGroup.visible = false;
+camera.add(digGunGroup);
+
+const fillGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const dirt = new THREE.Mesh(new THREE.DodecahedronGeometry(0.09), new THREE.MeshStandardMaterial({ color: 0x6a4a30, roughness: 0.95 }));
+  dirt.position.set(0, 0.07, -0.02);
+  fillGunGroup.add(body, dirt);
+}
+fillGunGroup.position.set(0.22, -0.2, -0.4);
+fillGunGroup.visible = false;
+camera.add(fillGunGroup);
+
+const shapeGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.02), new THREE.MeshStandardMaterial({ color: 0x8a8f96, metalness: 0.5, roughness: 0.4 }));
+  paddle.position.set(0, 0, -0.28);
+  shapeGunGroup.add(body, paddle);
+}
+shapeGunGroup.position.set(0.22, -0.2, -0.4);
+shapeGunGroup.visible = false;
+camera.add(shapeGunGroup);
+
+const plantGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const sapling = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.16, 6), new THREE.MeshStandardMaterial({ color: 0x4a8a4a, roughness: 0.8 }));
+  sapling.position.set(0, 0.08, -0.24);
+  plantGunGroup.add(body, sapling);
+}
+plantGunGroup.position.set(0.22, -0.2, -0.4);
+plantGunGroup.visible = false;
+camera.add(plantGunGroup);
+
+// ---------- Structural Engineer view models (slots 1-2) ----------
+const wallGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const block = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.06), new THREE.MeshStandardMaterial({ color: 0x9a9488, roughness: 0.8 }));
+  block.position.set(0, 0.07, -0.25);
+  wallGunGroup.add(body, block);
+}
+wallGunGroup.position.set(0.22, -0.2, -0.4);
+wallGunGroup.visible = false;
+camera.add(wallGunGroup);
+
+const lightpostGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.22, 8), new THREE.MeshStandardMaterial({ color: 0x3a3f46, metalness: 0.6, roughness: 0.4 }));
+  pole.position.set(0, 0.08, -0.28);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), new THREE.MeshStandardMaterial({ color: 0xffe8a0, emissive: 0xffcf6a, emissiveIntensity: 1.2 }));
+  lamp.position.set(0, 0.18, -0.28);
+  lightpostGunGroup.add(body, pole, lamp);
+}
+lightpostGunGroup.position.set(0.22, -0.2, -0.4);
+lightpostGunGroup.visible = false;
+camera.add(lightpostGunGroup);
 function refreshEquippedSkin() {
   customSkinGroup.clear();
   const skin = loadoutSkins[currentWeapon];
@@ -1789,6 +1867,8 @@ function setWeapon(w) {
   const solarJob = currentJob === 'solar';
   const plumberJob = currentJob === 'plumber';
   const demoJob = currentJob === 'demolition';
+  const landscapeJob = currentJob === 'landscaper';
+  const structEngJob = currentJob === 'structuralengineer';
   // slots 1-4 are job-specific toolkits — nothing shows for either if no job is
   // picked yet, which is exactly what "no tools until you select a job" needs
   gunGroup.visible = solarJob && w === 1;
@@ -1804,6 +1884,12 @@ function setWeapon(w) {
   scannerGunGroup.visible = demoJob && w === 2;
   breakerGunGroup.visible = demoJob && w === 3;
   chargeGunGroup.visible = demoJob && w === 4;
+  digGunGroup.visible = landscapeJob && w === 1;
+  fillGunGroup.visible = landscapeJob && w === 2;
+  shapeGunGroup.visible = landscapeJob && w === 3;
+  plantGunGroup.visible = landscapeJob && w === 4;
+  wallGunGroup.visible = structEngJob && w === 1;
+  lightpostGunGroup.visible = structEngJob && w === 2;
   pipeRouterGroup.visible = false; // no longer part of any loadout — kept only so old refs don't break
   // slots 5+ are universal utility tools for Solar/no-job; Plumber's slot 5 is the MSWB
   // gun instead, Demolition's slot 5 is just the existing Demo Tool (weapon 8) relabeled
@@ -1820,7 +1906,9 @@ function setWeapon(w) {
     inverterGunGroup.visible = false; hpGunGroup.visible = false; pipeGunGroup.visible = false;
     switchGunGroup.visible = false; acCableGunGroup.visible = false; mswbGunGroup.visible = false;
     barrierGunGroup.visible = false; scannerGunGroup.visible = false; breakerGunGroup.visible = false;
-    chargeGunGroup.visible = false;
+    chargeGunGroup.visible = false; digGunGroup.visible = false; fillGunGroup.visible = false;
+    shapeGunGroup.visible = false; plantGunGroup.visible = false; wallGunGroup.visible = false;
+    lightpostGunGroup.visible = false;
   }
   mouseDown = false;
   if (w === 2) cancelCable();
@@ -1964,6 +2052,31 @@ document.addEventListener('mousedown', (e) => {
       else if (currentWeapon === 4) fireCharge();
     } else if (e.button === 2 && currentWeapon === 4) {
       detonateCharges();
+    }
+    return;
+  }
+
+  // Landscaper's 4 slots — same single-action shape as Demolition's
+  if (currentJob === 'landscaper' && currentWeapon >= 1 && currentWeapon <= 4) {
+    if (currentWeapon === 4) {
+      if (e.button === 0) firePlant();
+      else if (e.button === 2) cyclePlantType();
+    } else if (e.button === 0) {
+      if (currentWeapon === 1) fireDig();
+      else if (currentWeapon === 2) fireFill();
+      else if (currentWeapon === 3) fireShape(1);
+    } else if (e.button === 2) {
+      if (currentWeapon === 2) fireFillRemove();
+      else if (currentWeapon === 3) fireShape(-1);
+    }
+    return;
+  }
+
+  // Structural Engineer's 2 slots
+  if (currentJob === 'structuralengineer' && currentWeapon >= 1 && currentWeapon <= 2) {
+    if (e.button === 0) {
+      if (currentWeapon === 1) fireWall();
+      else if (currentWeapon === 2) fireLightpost();
     }
     return;
   }
@@ -4938,7 +5051,25 @@ function updateHud() {
     const tier = upgrades.demoToolTier;
     weaponLine = `<b>5: Debris Vacuum Gun</b> (tier ${tier})<br>` +
       `<span class="good">LMB</span> break up a rock/timber/metal chunk in a rubble pile for +20${tier >= 2 ? ` &nbsp; <span class="good">RMB</span> hold + sweep to drag-collect, up to 100/drag` : ''}`;
-  } else if (currentWeapon === 1 && MAP_ID !== 1) {
+  } else if (currentJob === 'landscaper' && currentWeapon === 1) {
+    weaponLine = `<b>1: Digging Gun</b><br>` +
+      `<span class="good">LMB</span> dig a hole wherever you're aiming — cosmetic marker, ground stays flat`;
+  } else if (currentJob === 'landscaper' && currentWeapon === 2) {
+    weaponLine = `<b>2: Dirt Fill Gun</b><br>` +
+      `<span class="good">LMB</span> raise a mound &nbsp; <span class="good">RMB</span> aim at a pond to fill it in`;
+  } else if (currentJob === 'landscaper' && currentWeapon === 3) {
+    weaponLine = `<b>3: Shaping Tool</b><br>` +
+      `<span class="good">LMB</span> aim at a mound to enlarge it &nbsp; <span class="good">RMB</span> shrink it`;
+  } else if (currentJob === 'landscaper' && currentWeapon === 4) {
+    weaponLine = `<b>4: Planting Tool</b> — planting: <b>${PLANT_TYPE_NAMES[plantType]}</b><br>` +
+      `<span class="good">LMB</span> plant it &nbsp; <span class="good">RMB</span> cycle Tree/Bush/Grass`;
+  } else if (currentJob === 'structuralengineer' && currentWeapon === 1) {
+    weaponLine = `<b>1: Wall Gun</b><br>` +
+      `<span class="good">LMB</span> place a wall segment wherever you're aiming — keeps roaming animals out`;
+  } else if (currentJob === 'structuralengineer' && currentWeapon === 2) {
+    weaponLine = `<b>2: Lightpost Gun</b><br>` +
+      `<span class="good">LMB</span> place a lit lightpost wherever you're aiming`;
+  } else if (currentWeapon === 1 && MAP_ID !== 1 && currentJob !== 'landscaper' && currentJob !== 'structuralengineer') {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
     const cutterName = { 2: 'Tree Cutter', 3: 'Reed Cutter', 4: 'Scrub Cutter' }[MAP_ID] || 'Cutter';
     const cutterHint = { 2: 'clear the trees shading the array so it isn\'t blocked', 3: 'clear the dead reeds and moss-trees choking the swamp', 4: 'clear the dry scrub scattered across the badlands' }[MAP_ID] || '';
@@ -5142,6 +5273,12 @@ function animate() {
   if (scanCooldown > 0) scanCooldown -= dt;
   if (breakerCooldown > 0) breakerCooldown -= dt;
   if (chargeFireCooldown > 0) chargeFireCooldown -= dt;
+  if (digCooldown > 0) digCooldown -= dt;
+  if (fillCooldown > 0) fillCooldown -= dt;
+  if (shapeCooldown > 0) shapeCooldown -= dt;
+  if (plantCooldown > 0) plantCooldown -= dt;
+  if (wallFireCooldown > 0) wallFireCooldown -= dt;
+  if (lightpostFireCooldown > 0) lightpostFireCooldown -= dt;
   if (bulkInverterCooldown > 0) bulkInverterCooldown -= dt;
   if (repairCooldown > 0) repairCooldown -= dt;
   if (demoToolCooldown > 0) demoToolCooldown -= dt;
@@ -5262,6 +5399,14 @@ function animate() {
     ghostHpAreaMesh.visible = false;
     if (currentJob === 'demolition' && currentWeapon >= 1 && currentWeapon <= 4) {
       // no placement-grid ghost needed — these are all single-click aim-and-fire tools
+      ghostMesh.visible = false;
+      ghostAreaMesh.visible = false;
+      ghostInverterMesh.visible = false;
+    } else if (currentJob === 'landscaper' && currentWeapon >= 1 && currentWeapon <= 4) {
+      ghostMesh.visible = false;
+      ghostAreaMesh.visible = false;
+      ghostInverterMesh.visible = false;
+    } else if (currentJob === 'structuralengineer' && currentWeapon >= 1 && currentWeapon <= 2) {
       ghostMesh.visible = false;
       ghostAreaMesh.visible = false;
       ghostInverterMesh.visible = false;
@@ -5407,19 +5552,18 @@ const JOBS = [
     tools: ['Timber Frame Gun', 'Wall Panel Gun', 'Floorboard Gun', 'Door and Window Gun (LMB door/RMB window)', 'Nail Gun', 'Saw Gun'] },
   { id: 'playground', name: 'Playground Builder', icon: '🎠', unlocked: false,
     tools: ['Play Equipment Gun', 'Safety Surface Gun', 'Support Post Gun', 'Connector Gun', 'Fence and Gate Gun (LMB fence/RMB gate)', 'Safety Inspector Gun'] },
-  { id: 'roadbuilder', name: 'Road Builder', icon: '🛣️', unlocked: false,
+  { id: 'roadbuilder', name: 'Road Builder', icon: '🛣️', unlocked: true,
     tools: ['Road Surface Gun', 'Kerb Gun (LMB left/RMB right)', 'Lane Marking Gun', 'Drain Gun', 'Road Sign Gun', 'Compactor Gun'] },
   { id: 'electrician', name: 'Electrician', icon: '⚡', unlocked: false,
     tools: ['Cable Gun (LMB active/RMB neutral)', 'Switch Gun', 'Outlet Gun', 'Light Fitting Gun', 'Distribution Board Gun', 'Multimeter Gun'] },
-  { id: 'landscaper', name: 'Landscaper', icon: '🌳', unlocked: false,
-    tools: ['Terrain Gun (LMB raise/RMB lower)', 'Grass Gun', 'Tree Gun', 'Shrub and Flower Gun', 'Path Gun', 'Irrigation Connector Gun'] },
+  { id: 'landscaper', name: 'Landscaper', icon: '🌳', unlocked: true },
   { id: 'painter', name: 'Painter', icon: '🎨', unlocked: false,
     tools: ['Paint Spray Gun', 'Roller Gun', 'Detail Brush Gun', 'Masking Gun', 'Scraper Gun', 'Colour Scanner Gun'] },
   { id: 'roofer', name: 'Roofer', icon: '🏠', unlocked: false,
     tools: ['Roof Frame Gun', 'Roof Tile Gun', 'Ridge Cap Gun', 'Gutter Gun (LMB gutter/RMB downpipe)', 'Flashing Gun', 'Leak Detector Gun'] },
   { id: 'glazier', name: 'Glazier', icon: '🪟', unlocked: false,
     tools: ['Glass Panel Gun', 'Window Frame Gun', 'Sealant Gun', 'Glass Cutter Gun', 'Tint Gun', 'Suction Lifter Gun'] },
-  { id: 'fencer', name: 'Fence Builder', icon: '🚧', unlocked: false,
+  { id: 'fencer', name: 'Fence Builder', icon: '🚧', unlocked: true,
     tools: ['Fence Gun', 'Post Gun', 'Gate Gun (LMB pedestrian/RMB vehicle)', 'Hinge and Latch Gun', 'Terrain Anchor Gun', 'Alignment Gun'] },
   { id: 'bricklayer', name: 'Bricklayer', icon: '🧱', unlocked: false,
     tools: ['Brick Wall Gun', 'Mortar Gun', 'Corner Gun', 'Arch and Lintel Gun', 'Brick Cutter Gun', 'Spirit Level Gun'] },
@@ -5427,14 +5571,21 @@ const JOBS = [
     tools: ['Formwork Gun', 'Rebar Gun', 'Concrete Pour Gun', 'Screed Gun', 'Joint Cutter Gun', 'Concrete Pump Gun'] },
   { id: 'telecom', name: 'Telecom Installer', icon: '📡', unlocked: false,
     tools: ['Fibre Cable Gun', 'Copper Cable Gun', 'Data Outlet Gun', 'Network Cabinet Gun', 'Splice Gun', 'Signal Tester Gun'] },
-  { id: 'lampfixer', name: 'Streetlight Technician', icon: '💡', unlocked: false,
+  { id: 'lampfixer', name: 'Streetlight Technician', icon: '💡', unlocked: true,
     tools: ['Streetlight Pole Gun', 'Light Head Gun', 'Underground Cable Gun', 'Control Cabinet Gun', 'Sensor Gun', 'Maintenance Lift Gun'] },
   { id: 'signage', name: 'Sign Installer', icon: '🪧', unlocked: false,
     tools: ['Sign Post Gun', 'Sign Face Gun', 'Wall Sign Gun', 'Bolt Gun', 'Reflective Coating Gun', 'Alignment Gun'] },
-  { id: 'irrigation', name: 'Irrigation Installer', icon: '💧', unlocked: false,
+  { id: 'irrigation', name: 'Irrigation Installer', icon: '💧', unlocked: true,
     tools: ['Water Pipe Gun (LMB supply/RMB drainage)', 'Sprinkler Gun', 'Dripline Gun', 'Valve Gun', 'Irrigation Controller Gun', 'Pressure Tester Gun'] },
-  { id: 'waste', name: 'Waste Collector', icon: '🗑️', unlocked: false,
+  { id: 'waste', name: 'Waste Collector', icon: '🗑️', unlocked: true,
     tools: ['Grabber Gun', 'Bin Gun', 'Bin Lifter Gun', 'Compactor Gun', 'Sorting Gun', 'Pressure Washer Gun'] },
+  { id: 'arborist', name: 'Arborist', icon: '🌲', unlocked: true,
+    tools: ['Tree Assessment Gun', 'Pruning Gun', 'Root Care Gun', 'Replant Gun'] },
+  { id: 'ecologist', name: 'Wetland Ecologist', icon: '🐸', unlocked: true,
+    tools: ['Water Quality Tester', 'Habitat Marker Gun', 'Species Tagging Gun', 'Restoration Gun'] },
+  { id: 'structuralengineer', name: 'Structural Engineer', icon: '🏗️', unlocked: true },
+  { id: 'surveyor', name: 'Surveyor', icon: '📐', unlocked: true,
+    tools: ['Boundary Marker Gun', 'Level Gun', 'Survey Stake Gun', 'Site Plan Gun'] },
   { id: 'poolbuilder', name: 'Pool Builder', icon: '🏊', unlocked: false,
     tools: ['Excavation Gun', 'Pool Shell Gun', 'Tile Gun', 'Water Pipe Gun (LMB inlet/RMB outlet)', 'Pump and Filter Gun', 'Fill and Drain Gun (LMB fill/RMB drain)'] },
   { id: 'fountain', name: 'Fountain Builder', icon: '⛲', unlocked: false,
@@ -5623,11 +5774,23 @@ function buildJobHut(hx = JOB_HUT_X, hz = JOB_HUT_Z) {
 }
 buildJobHut(); // Map 1's — always built, matches this file's existing "city is always
                 // built regardless of MAP_ID" precedent (see the MAP_ID comment up top)
-// every sandbox map gets its own Job Hut too, at the same relative offset from its own
-// spawn point — only built for whichever map is actually active
+
+// a single-dome, 5-desk Job Hut for a sandbox map — reuses buildHutCircle exactly like
+// the figure-8 does, just with one circle instead of two, and its "away" angle aimed
+// so the pillar-free entrance wedge faces the map's own spawn point
+function buildSmallJobHut(hx, hz, spawnX, spawnZ, jobIds) {
+  const awayAngle = Math.atan2(hz - spawnZ, hx - spawnX);
+  buildHutCircle(hx, hz, awayAngle, jobIds);
+  const doorSign = makeTextSprite('JOB HUT', { fontSize: 60, color: '#ffd54a', border: '#ff9a4d', scale: 1.1 });
+  doorSign.position.set(hx, 8.2, hz);
+  scene.add(doorSign);
+}
+const SWAMP_HUT_JOBS = ['landscaper', 'irrigation', 'waste', 'arborist', 'ecologist'];
+const BADLANDS_HUT_JOBS = ['structuralengineer', 'fencer', 'lampfixer', 'roadbuilder', 'surveyor'];
+// Map 2 keeps the full 25-job figure-8 hut; Maps 3/4 get their own themed 5-job hut
 if (MAP_ID === 2) buildJobHut(MAP2_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP2_ORIGIN.z + JOB_HUT_OFFSET.dz);
-if (MAP_ID === 3) buildJobHut(MAP3_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP3_ORIGIN.z + JOB_HUT_OFFSET.dz);
-if (MAP_ID === 4) buildJobHut(MAP4_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP4_ORIGIN.z + JOB_HUT_OFFSET.dz);
+if (MAP_ID === 3) buildSmallJobHut(MAP3_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP3_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP3_ORIGIN.x, MAP3_ORIGIN.z + 6, SWAMP_HUT_JOBS);
+if (MAP_ID === 4) buildSmallJobHut(MAP4_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP4_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP4_ORIGIN.x, MAP4_ORIGIN.z + 6, BADLANDS_HUT_JOBS);
 
 function findJobTileUnderCrosshair() {
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
@@ -5667,11 +5830,15 @@ const LOADOUT_SLOT_NAMES = {
   solar: ['Solar Panel Gun', 'Cable Gun', 'Cable Router', 'Inverter Gun'],
   plumber: ['HP Gun', 'Pipe Gun', 'Switch', 'AC Cable', 'MSWB'],
   demolition: ['Safety Barrier Gun', 'Structural Scanner Gun', 'Breaker Gun', 'Controlled Charge Gun', 'Debris Vacuum Gun'],
+  landscaper: ['Digging Gun', 'Dirt Fill Gun', 'Shaping Tool', 'Planting Tool'],
+  structuralengineer: ['Wall Gun', 'Lightpost Gun'],
 };
 const LOADOUT_SLOT_MODELS = {
   solar: [gunGroup, cableGunGroup, routerGunGroup, inverterGunGroup],
   plumber: [hpGunGroup, pipeGunGroup, switchGunGroup, acCableGunGroup, mswbGunGroup],
   demolition: [barrierGunGroup, scannerGunGroup, breakerGunGroup, chargeGunGroup, demoToolGroup],
+  landscaper: [digGunGroup, fillGunGroup, shapeGunGroup, plantGunGroup],
+  structuralengineer: [wallGunGroup, lightpostGunGroup],
 };
 function buildGenericToolIcon() {
   const g = new THREE.Group();
@@ -6442,6 +6609,177 @@ function detonateCharges() {
   showDangerBanner('💥 CONTROLLED DEMOLITION — FIRE IN THE HOLE!');
 }
 
+// ---------- Landscaper toolset ----------
+// 1: Digging Gun — cosmetic dark sunken-pit decal (no real terrain deformation, the
+// ground is a flat plane; this is a visual "you dug here" marker). 2: Dirt Fill Gun —
+// LMB raises a mound, RMB aimed at a pond fills it in (removes it from pondMeshes).
+// 3: Shaping Tool — LMB/RMB grow/shrink the nearest mound in range. 4: Planting Tool —
+// cycles Tree/Bush/Grass with RMB, LMB places whichever is selected.
+const landscapeMounds = []; // { mesh, pos }
+const pondMeshes = []; // populated by buildSwampMap; fireFillRemove reads/writes this
+const matDirtHole = new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 1.0 });
+const matDirtMound = new THREE.MeshStandardMaterial({ color: 0x6a4a30, roughness: 0.95 });
+const matShrub = new THREE.MeshStandardMaterial({ color: 0x4a6a38, roughness: 0.9 });
+const matGrassPatch = new THREE.MeshStandardMaterial({ color: 0x5a8a44, roughness: 0.85 });
+
+function buildBlobGeometry(baseR, segments = 10, irregularity = 0.5) {
+  const shape = new THREE.Shape();
+  for (let i = 0; i <= segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    const r = baseR * (1 - irregularity / 2 + Math.random() * irregularity);
+    const x = Math.cos(a) * r, y = Math.sin(a) * r;
+    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+  }
+  return new THREE.ShapeGeometry(shape);
+}
+
+let digCooldown = 0;
+function fireDig() {
+  if (digCooldown > 0) return;
+  digCooldown = 0.3;
+  const hit = raycastWorldHit();
+  if (!hit) return;
+  const hole = new THREE.Mesh(buildBlobGeometry(rand(0.8, 1.6), 10, 0.5), matDirtHole);
+  hole.rotation.x = -Math.PI / 2;
+  hole.position.copy(hit.point).addScaledVector(hit.normal, 0.02);
+  scene.add(hole);
+  spawnWaterBurst(hit.point.clone()); // reused as a generic tumbling-debris puff, brown-ish enough
+  showToast('DUG A HOLE');
+}
+
+let fillCooldown = 0;
+function fireFill() {
+  if (fillCooldown > 0) return;
+  fillCooldown = 0.3;
+  const hit = raycastWorldHit();
+  if (!hit) return;
+  const scale = rand(0.9, 1.6);
+  const mound = new THREE.Mesh(new THREE.DodecahedronGeometry(scale), matDirtMound);
+  mound.position.copy(hit.point).addScaledVector(hit.normal, scale * 0.4);
+  mound.scale.y = 0.55;
+  mound.rotation.y = rand(0, Math.PI);
+  mound.castShadow = true;
+  mound.receiveShadow = true;
+  scene.add(mound);
+  groundColliders.push(mound);
+  landscapeMounds.push({ mesh: mound, pos: hit.point.clone() });
+  showToast('MOUND RAISED');
+}
+function fireFillRemove() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(pondMeshes, false);
+  if (!hits.length || hits[0].distance > MAX_PLACE_DIST) { showToast('AIM AT A POND TO FILL IT IN'); return; }
+  const idx = pondMeshes.indexOf(hits[0].object);
+  if (idx < 0) return;
+  scene.remove(hits[0].object);
+  pondMeshes.splice(idx, 1);
+  showToast('POND FILLED IN');
+}
+
+let shapeCooldown = 0;
+function fireShape(dir) {
+  if (shapeCooldown > 0) return;
+  shapeCooldown = 0.15;
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  let best = null, bestDist = 6;
+  landscapeMounds.forEach((m) => {
+    const hits = centerRay.intersectObject(m.mesh, false);
+    if (hits.length && hits[0].distance < bestDist) { bestDist = hits[0].distance; best = m; }
+  });
+  if (!best) { showToast('AIM AT A MOUND TO SHAPE IT'); return; }
+  const newScale = Math.max(0.4, Math.min(3, best.mesh.scale.x + dir * 0.12));
+  best.mesh.scale.x = newScale;
+  best.mesh.scale.z = newScale;
+  showToast(dir > 0 ? 'MOUND ENLARGED' : 'MOUND SHRUNK');
+}
+
+let plantType = 0; // 0 tree, 1 bush, 2 grass
+const PLANT_TYPE_NAMES = ['Tree', 'Bush', 'Grass'];
+function cyclePlantType() {
+  plantType = (plantType + 1) % 3;
+  showToast(`PLANTING: ${PLANT_TYPE_NAMES[plantType].toUpperCase()}`);
+}
+function buildShrub(x, z) {
+  const g = new THREE.Group();
+  const clumps = 3 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < clumps; i++) {
+    const s = rand(0.18, 0.32);
+    const c = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), matShrub);
+    c.position.set(rand(-0.2, 0.2), s * 0.7 + rand(0, 0.1), rand(-0.2, 0.2));
+    c.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+    c.castShadow = true;
+    g.add(c);
+  }
+  g.position.set(x, 0, z);
+  scene.add(g);
+  return g;
+}
+function buildGrassPatch(x, z) {
+  const patch = new THREE.Mesh(new THREE.CircleGeometry(rand(0.6, 1.2), 8), matGrassPatch);
+  patch.rotation.x = -Math.PI / 2;
+  patch.position.set(x, 0.015, z);
+  scene.add(patch);
+  return patch;
+}
+let plantCooldown = 0;
+function firePlant() {
+  if (plantCooldown > 0) return;
+  plantCooldown = 0.2;
+  const hit = raycastWorldHit();
+  if (!hit) return;
+  if (plantType === 0) buildCuttableTree(hit.point.x, hit.point.z, matWood, matLeaf);
+  else if (plantType === 1) buildShrub(hit.point.x, hit.point.z);
+  else buildGrassPatch(hit.point.x, hit.point.z);
+  showToast(`PLANTED: ${PLANT_TYPE_NAMES[plantType].toUpperCase()}`);
+}
+
+// ---------- Structural Engineer toolset ----------
+// 1: Wall Gun — places a wall segment (keeps roaming animals out). 2: Lightpost Gun —
+// places a pole+lamp with a real point light, for lighting the site before the road
+// builders and other trades move in.
+const matWallSeg = new THREE.MeshStandardMaterial({ color: 0x9a9488, roughness: 0.8 });
+const matLightPole = new THREE.MeshStandardMaterial({ color: 0x3a3f46, metalness: 0.6, roughness: 0.4 });
+const matLampGlow = new THREE.MeshStandardMaterial({ color: 0xffe8a0, emissive: 0xffcf6a, emissiveIntensity: 1.2 });
+let wallFireCooldown = 0;
+function fireWall() {
+  if (wallFireCooldown > 0) return;
+  wallFireCooldown = 0.25;
+  const hit = raycastWorldHit();
+  if (!hit) return;
+  const seg = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.6, 0.3), matWallSeg);
+  const up = new THREE.Vector3(0, 1, 0);
+  seg.quaternion.setFromUnitVectors(up, hit.normal);
+  seg.position.copy(hit.point).addScaledVector(hit.normal, 0.8);
+  seg.castShadow = true;
+  seg.receiveShadow = true;
+  scene.add(seg);
+  worldMeshes.push(seg);
+  groundColliders.push(seg);
+  const r = 1.2;
+  addWallBox(seg.position.x - r, seg.position.x + r, seg.position.z - r, seg.position.z + r, 0, 1.6);
+  showToast('WALL SEGMENT PLACED');
+}
+let lightpostFireCooldown = 0;
+function fireLightpost() {
+  if (lightpostFireCooldown > 0) return;
+  lightpostFireCooldown = 0.3;
+  const hit = raycastWorldHit();
+  if (!hit) return;
+  const group = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4, 8), matLightPole);
+  pole.position.y = 2;
+  pole.castShadow = true;
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), matLampGlow);
+  lamp.position.y = 4.1;
+  const light = new THREE.PointLight(0xffcf6a, 1.4, 16, 2);
+  light.position.y = 4.1;
+  group.add(pole, lamp, light);
+  group.position.copy(hit.point);
+  scene.add(group);
+  groundColliders.push(group);
+  showToast('LIGHTPOST PLACED');
+}
+
 // ============================================================================
 // Map 2: Solar Farm — Open Range. A separate world built far from Map 1's city
 // (see MAP2_ORIGIN) — open ground, a lot of trees shading a fixed 1MW tilted
@@ -6467,7 +6805,9 @@ function buildCuttableTree(x, z, trunkMat = matWood, leafMat = matLeaf) {
   scene.add(leaves);
   const r = 0.2 * scale;
   const wallBox = addWallBox(x - r, x + r, z - r, z + r, 0, 2.2 * scale);
-  map2Trees.push({ trunk, leaves, wallBox });
+  const tree = { trunk, leaves, wallBox };
+  map2Trees.push(tree);
+  return tree;
 }
 
 function fireTreeCutter() {
@@ -6627,27 +6967,44 @@ function buildSwampMap() {
   groundColliders.push(ground);
   placementSurfaces.push(ground);
 
-  // scattered murky water pools — flat, slightly sunken, walkable (no swimming
-  // mechanic), just visual/atmosphere
-  const matSwampWater = new THREE.MeshStandardMaterial({ color: 0x2a4a3e, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.88 });
+  // scattered murky water pools — odd-shaped blobs (buildBlobGeometry), flat, slightly
+  // sunken, walkable (no swimming mechanic), pushed into pondMeshes[] so the
+  // Landscaper's Dirt Fill Gun (RMB) can aim at and fill one in
+  const matSwampWater = new THREE.MeshStandardMaterial({ color: 0x1e3a2e, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.88 });
   for (let i = 0; i < 22; i++) {
     const px = ox + rand(-220, 220), pz = oz + rand(-220, 220);
     if (Math.hypot(px - ox, pz - (oz + 6)) < 10) continue; // keep spawn clear
     if (nearJobHut(px, pz, ox, oz)) continue;
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(rand(4, 11), 16), matSwampWater);
+    const pool = new THREE.Mesh(buildBlobGeometry(rand(4, 11), 12, 0.6), matSwampWater);
     pool.rotation.x = -Math.PI / 2;
     pool.position.set(px, 0.02, pz);
     scene.add(pool);
+    pondMeshes.push(pool);
   }
 
-  // dead, mossy trees — same cuttable-tree mechanic as Map 2, just reskinned
+  // dead, mossy, kinda misshapen trees — same cuttable-tree mechanic as Map 2, just
+  // reskinned and tilted so they don't all stand perfectly straight
   const matDeadWood = new THREE.MeshStandardMaterial({ color: 0x4a3f30, roughness: 0.95 });
   const matMoss = new THREE.MeshStandardMaterial({ color: 0x5a6e3c, roughness: 0.9 });
-  for (let i = 0; i < 140; i++) {
+  for (let i = 0; i < 110; i++) {
     const tx = ox + rand(-220, 220), tz = oz + rand(-220, 220);
     if (Math.hypot(tx - ox, tz - (oz + 6)) < 10) continue; // keep spawn clear
     if (nearJobHut(tx, tz, ox, oz)) continue;
-    buildCuttableTree(tx, tz, matDeadWood, matMoss);
+    const tree = buildCuttableTree(tx, tz, matDeadWood, matMoss);
+    if (tree) {
+      const tilt = rand(-0.22, 0.22);
+      tree.trunk.rotation.z = tilt;
+      tree.leaves.rotation.z = tilt;
+      tree.leaves.position.x += Math.sin(tilt) * 1.2;
+    }
+  }
+
+  // small shrubs scattered around, same style as the swamp's own Bush planting type
+  for (let i = 0; i < 60; i++) {
+    const sx = ox + rand(-220, 220), sz = oz + rand(-220, 220);
+    if (Math.hypot(sx - ox, sz - (oz + 6)) < 8) continue;
+    if (nearJobHut(sx, sz, ox, oz)) continue;
+    buildShrub(sx, sz);
   }
 
   const sign = makeTextSprite('THE SWAMP', { fontSize: 44, color: '#bcd9a8', border: '#5a7a4a', scale: 0.6 });
@@ -6815,4 +7172,7 @@ window.__debug = {
   JOB_HUT_OFFSET, updateHud,
   staminaPct: () => staminaPct, setStaminaPct: (v) => { staminaPct = v; }, updateStamina,
   staminaWasSprinting: () => staminaWasSprinting, staminaRegenRate: () => staminaRegenRate,
+  fireDig, fireFill, fireFillRemove, fireShape, firePlant, cyclePlantType,
+  fireWall, fireLightpost, landscapeMounds, pondMeshes, plantType: () => plantType,
+  buildBlobGeometry, buildShrub, buildGrassPatch,
 };
