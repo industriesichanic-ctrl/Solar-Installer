@@ -9,15 +9,16 @@ import * as THREE from 'three';
 const urlParams = new URLSearchParams(location.search);
 const rawMapParam = Number(urlParams.get('map'));
 const MAP_ID = [2, 3, 4].includes(rawMapParam) ? rawMapParam : 1;
-// Every non-city map's world sits at a huge offset from Map 1's (-140..140) and from
-// each other, rather than Map 1's city being conditionally skipped — Map 1's whole
-// world-build is a large amount of existing, working top-level code that would be
-// risky to wrap in a map check. Building it even in Map 2/3/4 mode costs some
-// memory/CPU for a city the player will practically never walk to, which is a known
-// simplification (see NOTES.md).
+// Oct District (the city), the Swamp, and the Badlands are all ALWAYS built together
+// now, at real positions relative to each other (Swamp northwest, Badlands northeast,
+// per the reference world-map layout) — one continuous, always-on world. "Map ID" 1/3/4
+// now really just picks a *spawn point* within that shared world, not a different world
+// to build. Map 2 (the Solar Farm) is the one exception: it's still its own separate,
+// far-off instance with its own goal, unrelated to the reference map's regions, and
+// still only builds when actually selected.
 const MAP2_ORIGIN = { x: 3000, z: 0 };
-const MAP3_ORIGIN = { x: 6000, z: 0 }; // Swamp
-const MAP4_ORIGIN = { x: 9000, z: 0 }; // Badlands
+const MAP3_ORIGIN = { x: -520, z: 300 }; // Swamp — northwest of Oct District
+const MAP4_ORIGIN = { x: 520, z: 300 };  // Badlands — northeast of Oct District
 
 // touch-primary devices (phones/tablets) get an on-screen control overlay instead of
 // requiring pointer lock + keyboard — everything underneath (movement, look, firing,
@@ -5816,10 +5817,11 @@ function buildSmallJobHut(hx, hz, spawnX, spawnZ, jobIds, theme = HUT_THEMES.cit
 }
 const SWAMP_HUT_JOBS = ['landscaper', 'irrigation', 'waste', 'arborist', 'ecologist'];
 const BADLANDS_HUT_JOBS = ['structuralengineer', 'fencer', 'lampfixer', 'roadbuilder', 'surveyor'];
-// Map 2 keeps the full 25-job figure-8 hut; Maps 3/4 get their own themed 5-job hut
+// City + Swamp + Badlands huts are all always built now (one shared world) — only the
+// Solar Farm's hut stays gated, since Map 2 is still its own separate instance
+buildSmallJobHut(MAP3_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP3_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP3_ORIGIN.x, MAP3_ORIGIN.z + 6, SWAMP_HUT_JOBS, HUT_THEMES.swamp);
+buildSmallJobHut(MAP4_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP4_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP4_ORIGIN.x, MAP4_ORIGIN.z + 6, BADLANDS_HUT_JOBS, HUT_THEMES.badlands);
 if (MAP_ID === 2) buildJobHut(MAP2_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP2_ORIGIN.z + JOB_HUT_OFFSET.dz);
-if (MAP_ID === 3) buildSmallJobHut(MAP3_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP3_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP3_ORIGIN.x, MAP3_ORIGIN.z + 6, SWAMP_HUT_JOBS, HUT_THEMES.swamp);
-if (MAP_ID === 4) buildSmallJobHut(MAP4_ORIGIN.x + JOB_HUT_OFFSET.dx, MAP4_ORIGIN.z + JOB_HUT_OFFSET.dz, MAP4_ORIGIN.x, MAP4_ORIGIN.z + 6, BADLANDS_HUT_JOBS, HUT_THEMES.badlands);
 
 function findJobTileUnderCrosshair() {
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
@@ -6982,8 +6984,9 @@ function nearJobHut(x, z, ox, oz) {
 // a distinct biome. Both intentionally skip a Job Hut, exactly like Map 2.
 // ============================================================================
 function buildSwampMap() {
-  upgrades.gun0Unlocked = true;
-  upgrades.switchboardUnlocked = true;
+  // no more pre-unlocking gun0/switchboards here — the Swamp is part of the same
+  // shared world as the city now, so the city's own progression (earn gun0 by
+  // activating POWER_SYSTEMS_FOR_GUN0 power systems) governs everywhere consistently
   const ox = MAP3_ORIGIN.x, oz = MAP3_ORIGIN.z;
 
   const matMud = new THREE.MeshStandardMaterial({ color: 0x3a3327, roughness: 1.0 });
@@ -7040,11 +7043,11 @@ function buildSwampMap() {
   sign.position.set(ox, 6, oz + 6);
   scene.add(sign);
 }
-if (MAP_ID === 3) buildSwampMap();
+buildSwampMap(); // always built — part of the shared world now, see the MAP_ID comment up top
 
 function buildBadlandsMap() {
-  upgrades.gun0Unlocked = true;
-  upgrades.switchboardUnlocked = true;
+  // see buildSwampMap's comment — no pre-unlock here either now that it's part of
+  // the shared world
   const ox = MAP4_ORIGIN.x, oz = MAP4_ORIGIN.z;
 
   const matSand = new THREE.MeshStandardMaterial({ color: 0xc78f4f, roughness: 1.0 });
@@ -7093,7 +7096,21 @@ function buildBadlandsMap() {
   sign.position.set(ox, 6, oz + 6);
   scene.add(sign);
 }
-if (MAP_ID === 4) buildBadlandsMap();
+buildBadlandsMap(); // always built — part of the shared world now, see the MAP_ID comment up top
+
+// the city, swamp, and badlands ground planes don't touch each other (each region has
+// its own smaller patch) — this single big neutral-grass base plane sits just beneath
+// all of them so there's no gap to fall through while walking between regions
+{
+  const matBaseGround = new THREE.MeshStandardMaterial({ color: 0x4a6a3a, roughness: 1.0 });
+  const baseGround = new THREE.Mesh(new THREE.PlaneGeometry(1900, 900), matBaseGround);
+  baseGround.rotation.x = -Math.PI / 2;
+  baseGround.position.set(0, -0.03, 230);
+  baseGround.receiveShadow = true;
+  baseGround.userData.isSurface = true;
+  scene.add(baseGround);
+  groundColliders.push(baseGround);
+}
 
 animate();
 

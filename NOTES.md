@@ -597,6 +597,63 @@ Verified live: both lift trades have real desks in the city hut
 (`jobTileMeshes` confirms), `JOBS.length` is now 34, all three region job
 ids exist in the roster, no console errors.
 
+### Unified world: City + Swamp + Badlands combined (v29)
+
+First real pass at "combine the maps into one," per the reference world-map
+image (Swamp northwest, Badlands northeast of the central hub):
+- `MAP3_ORIGIN`/`MAP4_ORIGIN` moved from `x: 6000/9000` to `x: -520/520,
+  z: 300` — close enough to the city to be reached on foot, positioned so
+  none of the three regions' ground planes overlap (city ground is
+  ±140, Swamp/Badlands are 600×600 planes centered 520+ units out — margin
+  checked by hand, not just assumed).
+- `buildSwampMap()`, `buildBadlandsMap()`, and both `buildSmallJobHut()`
+  calls are no longer gated behind `if (MAP_ID === 3/4)` — they're
+  unconditional now, same as the city's own always-built precedent. `MAP_ID`
+  is repurposed: for values 1/3/4 it now only picks a **spawn point**
+  within one shared, always-built world, not a different world to build.
+  Map 2 (the Solar Farm) is the deliberate exception — it's not part of
+  the reference map's regions, has its own separate goal/economy, and
+  stays exactly as before: a genuinely separate instance, still gated on
+  `MAP_ID === 2`.
+- Removed `upgrades.gun0Unlocked/switchboardUnlocked = true` from
+  `buildSwampMap`/`buildBadlandsMap` — that pre-unlock made sense when
+  they were isolated sandboxes, but now they're reachable on foot from the
+  city, so the city's normal progression (earn gun 0 by activating
+  `POWER_SYSTEMS_FOR_GUN0` power systems) applies uniformly everywhere.
+  Map 2 keeps its own pre-unlock since it's still a separate instance.
+- New: a single large base ground plane (1900×900, `y: -0.03`, positioned
+  just beneath every region's own ground) fills what would otherwise be a
+  ~80-unit fall-through-the-void gap between the city and each region —
+  each region's own ground plane still renders on top of it where they
+  actually are (nearest-hit raycasting picks the higher surface).
+
+**Known limitation, not yet fixed**: weapon-1's job-vs-cutter-tool
+override (and the matching HUD text, e.g. "Reed Cutter") still keys off
+the static spawn-choice `MAP_ID`, not the player's live position. Spawn
+in the city and walk to the Swamp and weapon 1 still behaves like your
+job's tool, not the Reed Cutter, until you look at it from the other
+direction (spawn in Swamp, walk to city — same issue in reverse). Making
+these overrides live/position-based (a `currentSandboxRegion()` check
+against `camera.position` vs `MAP3_ORIGIN`/`MAP4_ORIGIN`, replacing every
+`MAP_ID !== 1`/`MAP_ID === 2` check that's really about "which weapon
+should be active right now" rather than "which world got built") is the
+next piece of this project — deliberately deferred rather than rushed
+across the many call sites (fire(), mousedown, HUD text, ghost-preview)
+that would need it. Per-map fog/atmosphere has the same "keyed to spawn
+choice, not live position" limitation and was left as-is since the
+Swamp/Badlands' distinct fog was explicitly liked.
+
+Verified live: default spawn (Map 1) — `gun0Unlocked`/`switchboardUnlocked`
+both `false` (no leaked pre-unlock), 195 trees total (Swamp+Badlands
+combined), 37 `jobTileMeshes` (27 city + 5 Swamp + 5 Badlands, matches
+exactly); a downward raycast in the gap between city and Swamp/Badlands
+hits the new base ground (`y: -0.03`); `?map=3`/`?map=4` correctly spawn
+at the Swamp's/Badlands' new close-in positions within the *same* scene
+(`jobTileMeshes.length` still 37 either way — confirms it's genuinely one
+shared world, not a rebuilt instance); `?map=2` unaffected, still a
+separate instance with its own pre-unlocked gun 0. No console errors on
+any spawn choice.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic
