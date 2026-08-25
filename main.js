@@ -5544,10 +5544,14 @@ function animate() {
 const JOBS = [
   { id: 'solar', name: 'Solar Installer', icon: '☀️', unlocked: true },
   { id: 'plumber', name: 'Plumber', icon: '🔧', unlocked: true },
-  { id: 'aircon', name: 'Aircon Installer', icon: '❄️', unlocked: false,
+  { id: 'aircon', name: 'Aircon Installer', icon: '❄️', unlocked: true,
     tools: ['Indoor Unit Gun', 'Outdoor Unit Gun', 'Refrigerant Pipe Gun (LMB supply/RMB return)', 'Duct Gun', 'Vent Gun', 'Vacuum/Test Gun'] },
-  { id: 'heatpump', name: 'Heat Pump Installer', icon: '🌡️', unlocked: false,
+  { id: 'heatpump', name: 'Heat Pump Installer', icon: '🌡️', unlocked: true,
     tools: ['Heat Pump Gun', 'Flow Pipe Gun (LMB flow/RMB return)', 'Buffer Tank Gun', 'Circulation Pump Gun', 'Thermostat Gun', 'Commissioning Gun'] },
+  { id: 'liftelectrician', name: 'Lift Electrician', icon: '🔌', unlocked: true,
+    tools: ['Control Panel Gun', 'Wiring Gun (LMB power/RMB signal)', 'Sensor Gun', 'Backup Power Gun'] },
+  { id: 'liftmechanic', name: 'Lift Mechanic', icon: '🛗', unlocked: true,
+    tools: ['Rail Gun', 'Cab Gun', 'Cable and Pulley Gun', 'Door Mechanism Gun', 'Safety Brake Gun', 'Inspection Gun'] },
   { id: 'carpenter', name: 'Carpenter', icon: '🔨', unlocked: false,
     tools: ['Timber Frame Gun', 'Wall Panel Gun', 'Floorboard Gun', 'Door and Window Gun (LMB door/RMB window)', 'Nail Gun', 'Saw Gun'] },
   { id: 'playground', name: 'Playground Builder', icon: '🎠', unlocked: false,
@@ -5595,6 +5599,15 @@ const JOBS = [
   { id: 'demolition', name: 'Demolition Contractor', icon: '🧨', unlocked: true },
   { id: 'security', name: 'Security/CCTV Installer', icon: '📷', unlocked: false,
     tools: ['Camera Gun', 'PTZ Camera Gun', 'Security Cable Gun', 'Alarm Sensor Gun', 'Control Panel Gun', 'Monitor Gun'] },
+  // the three "region" jobs from the Oasis/Paradise/Desert brainstorm — registered so
+  // the roster is complete, but not yet placed at any desk since none of those three
+  // maps exist yet; add them to a Job Hut once their map is built
+  { id: 'swimmingcoach', name: 'Swimming Coach', icon: '🏊‍♀️', unlocked: true,
+    tools: ['Floatation Gun', 'Lane Rope Gun', 'Lifeguard Whistle', 'Depth Marker Gun'] },
+  { id: 'botanist', name: 'Botanist', icon: '🌿', unlocked: true,
+    tools: ['Seed Gun', 'Potion Brewing Gun', 'Herb Identification Gun', 'Grafting Gun'] },
+  { id: 'ranger', name: 'Ranger', icon: '🏹', unlocked: true,
+    tools: ['Tracking Gun', 'Trap Gun', 'Camp Building Gun', 'Alchemy Gun'] },
 ];
 let currentJob = null; // no job, no tools, until the player picks one at the Job Hut
 const jobTileMeshes = []; // { mesh, job }
@@ -5611,7 +5624,7 @@ let selectedJobTile = null;
 // the 24 non-Solar jobs split into two groups of 12 "relevant/similar" trades —
 // Group A leans structural/build trades, Group B leans outdoor/finishing/utility
 const JOB_HUT_GROUP_A = ['plumber', 'carpenter', 'bricklayer', 'concreter', 'roofer', 'glazier', 'fencer', 'electrician', 'aircon', 'heatpump', 'demolition', 'roadbuilder'];
-const JOB_HUT_GROUP_B = ['landscaper', 'painter', 'telecom', 'lampfixer', 'signage', 'irrigation', 'waste', 'poolbuilder', 'fountain', 'muralist', 'security', 'playground'];
+const JOB_HUT_GROUP_B = ['landscaper', 'painter', 'telecom', 'lampfixer', 'signage', 'irrigation', 'waste', 'poolbuilder', 'fountain', 'muralist', 'security', 'playground', 'liftelectrician', 'liftmechanic'];
 
 const pillarMat = new THREE.MeshStandardMaterial({ color: 0xc9c0ab, roughness: 0.7 });
 const domeMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.5, side: THREE.DoubleSide });

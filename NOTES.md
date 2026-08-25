@@ -570,6 +570,33 @@ maps' `buildSmallJobHut` calls. Verified live: Swamp's dome now reads
 Badlands' dome reads `#d9a86a`; Map 1's city hut is unchanged; no console
 errors on any map.
 
+### Job roster update — scaled-back priority list (v28, display-only)
+
+User's "scale back the other jobs" request, clarified: keep every existing
+playable job (Solar/Plumber/Demolition/Landscaper/Structural Engineer)
+and *add* to that list rather than replace it — the priority shortlist is
+now those five plus Aircon, Heat Pump, Lift Electrician, Lift Mechanic,
+and the three "region" jobs brainstormed for Oasis/Paradise/Desert
+(Swimming Coach, Botanist, Ranger — picking one concrete name per region
+archetype rather than the 2-3 flavor-synonyms each was pitched with).
+This pass is registration/visibility only, no new mechanics:
+- `aircon`/`heatpump` flipped from `unlocked: false` to `true` (still no
+  real tools — same "visible desk, no gun" state every other
+  display-only-unlocked job is in).
+- Two brand new jobs added: `liftelectrician` (Control Panel/Wiring/
+  Sensor/Backup Power guns) and `liftmechanic` (Rail/Cab/Cable and
+  Pulley/Door Mechanism/Safety Brake/Inspection guns) — thematically fit
+  the city (skyscrapers have elevators), so both got added to
+  `JOB_HUT_GROUP_B` and now have real desks in the city's figure-8 hut.
+- Three more added for the not-yet-built regions: `swimmingcoach`,
+  `botanist`, `ranger` — registered in `JOBS` so the roster is complete,
+  but deliberately **not** placed at any desk yet since Oasis/Paradise/
+  Desert don't exist as maps — add them to a hut once those maps do.
+
+Verified live: both lift trades have real desks in the city hut
+(`jobTileMeshes` confirms), `JOBS.length` is now 34, all three region job
+ids exist in the roster, no console errors.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic
