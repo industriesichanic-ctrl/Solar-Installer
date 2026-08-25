@@ -285,6 +285,14 @@ function addWallBox(minX, maxX, minZ, maxZ, minY, maxY) {
   return box;
 }
 
+// ---------- Job Hut geometry (hoisted up here, ahead of buildBuilding/BUILDING_DEFS
+// below, purely so its footprint can be carved out of SPECIAL_ZONES — the rest of the
+// Job Hut's actual construction still happens much further down) ----------
+const JOB_HUT_X = -6, JOB_HUT_Z = 30, JOB_HUT_R = 12;
+const JOB_HUT_OFFSET = { dx: JOB_HUT_X, dz: JOB_HUT_Z };
+const JOB_HUT_CIRCLE_GAP = 18;
+const JOB_HUT_FOOTPRINT_R = JOB_HUT_CIRCLE_GAP / 2 + JOB_HUT_R + 6; // + padding for the canopy/stairs
+
 // ---------- Special zones (market square, park+lake, solar farm, salvage yard) — kept clear of buildings/crates ----------
 const SALVAGE_YARD = { cx: 70, cz: -110, r: 24 };
 const salvageCleric = {}; // filled in when the yard is built: { group, pos, cableSign, panelSign }
@@ -293,6 +301,7 @@ const SPECIAL_ZONES = [
   { cx: -118, cz: 0, r: 34 },    // park + lake
   { cx: 0, cz: 134, r: 70 },     // solar farm district (mega roofs)
   { cx: SALVAGE_YARD.cx, cz: SALVAGE_YARD.cz, r: SALVAGE_YARD.r + 6 },   // salvage yard
+  { cx: JOB_HUT_X, cz: JOB_HUT_Z, r: JOB_HUT_FOOTPRINT_R },              // Job Hut (figure-8 domes)
 ];
 function inSpecialZone(x, z, pad = 8) {
   return SPECIAL_ZONES.some((zone) => Math.hypot(x - zone.cx, z - zone.cz) < zone.r + pad);
@@ -538,7 +547,7 @@ for (let i = 0; i < 50; i++) {
 placementSurfaces.push(groundMesh);
 
 // ---------- Static population — low-poly silhouettes, frozen in poses for now ----------
-function buildPerson(x, z, rotY = 0, pose = 'stand') {
+function buildPerson(x, z, rotY = 0, pose = 'stand', baseY = 0) {
   const g = new THREE.Group();
   const bodyH = pose === 'sit' ? 0.85 : 1.55;
   const bodyY = pose === 'sit' ? bodyH / 2 + 0.45 : bodyH / 2;
@@ -574,7 +583,7 @@ function buildPerson(x, z, rotY = 0, pose = 'stand') {
     const a2 = new THREE.Mesh(armGeo, matSilhouette); a2.position.set(-0.22, armY, 0); g.add(a2);
   }
 
-  g.position.set(x, 0, z);
+  g.position.set(x, baseY, z);
   g.rotation.y = rotY;
   scene.add(g);
   return g;
@@ -5445,13 +5454,9 @@ let selectedJobTile = null;
 // inner ring, each with a clerk behind it and a little sample of that job's tool
 // sitting on the counter (only Solar/Plumber get a real prop; locked jobs get a
 // grey placeholder block).
-const JOB_HUT_X = -6, JOB_HUT_Z = 30, JOB_HUT_R = 12;
-// same relative offset from a map's own spawn point every time, so every map's hut
-// sits in the same "just off to the side" spot the city's does
-const JOB_HUT_OFFSET = { dx: JOB_HUT_X, dz: JOB_HUT_Z };
-// distance between the two circles' centers — < 2*JOB_HUT_R so they overlap into a
-// figure-8, with the overlap's exact midpoint reserved for Solar's pedestal
-const JOB_HUT_CIRCLE_GAP = 18;
+// JOB_HUT_X/Z/R, JOB_HUT_OFFSET, JOB_HUT_CIRCLE_GAP, and JOB_HUT_FOOTPRINT_R are all
+// declared much earlier (right before SPECIAL_ZONES) so BUILDING_DEFS generation can
+// carve the Job Hut's footprint out of the city grid — see the comment there.
 // the 24 non-Solar jobs split into two groups of 12 "relevant/similar" trades —
 // Group A leans structural/build trades, Group B leans outdoor/finishing/utility
 const JOB_HUT_GROUP_A = ['plumber', 'carpenter', 'bricklayer', 'concreter', 'roofer', 'glazier', 'fencer', 'electrician', 'aircon', 'heatpump', 'demolition', 'roadbuilder'];
@@ -5465,6 +5470,26 @@ const sampleMats = { solar: matPanel, plumber: matPipeCopper };
 // one circle of the figure-8 — floor, pillars (skipping a wedge facing the other
 // circle so the two are walkable into each other), dome, and desks for `jobsList`,
 // spread across the remaining ~300° arc away from that shared wedge
+// a single straight sloped ramp/staircase between two points, walkable like any other
+// groundCollider — used to reach Solar's elevated platform from either side
+function buildStairRamp(x0, y0, z0, x1, y1, z1, width) {
+  const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+  const horizLen = Math.hypot(dx, dz);
+  const len = Math.hypot(horizLen, dy);
+  const rampMat = new THREE.MeshStandardMaterial({ color: 0xc9c0ab, roughness: 0.65 });
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(width, 0.3, len), rampMat);
+  ramp.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+  ramp.rotation.order = 'YXZ';
+  ramp.rotation.y = Math.atan2(dx, dz);
+  ramp.rotation.x = -Math.atan2(dy, horizLen);
+  ramp.castShadow = true;
+  ramp.receiveShadow = true;
+  ramp.userData.isSurface = true;
+  scene.add(ramp);
+  groundColliders.push(ramp);
+  return ramp;
+}
+
 function buildHutCircle(cx, cz, awayAngle, jobsList) {
   const domeR = JOB_HUT_R;
   const gapHalfAngle = (30 * Math.PI) / 180; // 60°-wide wedge left open toward the other circle
@@ -5549,24 +5574,33 @@ function buildJobHut(hx = JOB_HUT_X, hz = JOB_HUT_Z) {
   doorSign.position.set(hx, 8.2, hz);
   scene.add(doorSign);
 
-  // Solar Installer's pedestal, right where the two circles overlap
+  // Solar Installer's own upper level — a third, smaller dome sitting on top of the
+  // two lower ones (their apex is at domeR + 0.8 + 6 ≈ 18.8), reached by a long
+  // staircase rising up from each side through the same pillar-free wedge that
+  // already connects the two lower domes to each other
+  const PLATFORM_Y = 20;
+  const PLATFORM_R = 7;
   const solarJob = JOBS.find((j) => j.id === 'solar');
   const pedMat = new THREE.MeshStandardMaterial({ color: 0xffd54a, roughness: 0.4, metalness: 0.4, emissive: 0x5a4008, emissiveIntensity: 0.3 });
-  const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.7, 0.6, 24), pedMat);
-  pedestal.position.set(hx, 0.32, hz);
-  pedestal.castShadow = true;
-  pedestal.receiveShadow = true;
-  pedestal.userData.isSurface = true;
-  scene.add(pedestal);
-  groundColliders.push(pedestal);
 
-  const canopy = new THREE.Mesh(new THREE.SphereGeometry(4.5, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), domeMat.clone());
-  canopy.position.set(hx, 0.6 + 4.2, hz);
+  const platform = new THREE.Mesh(new THREE.CylinderGeometry(PLATFORM_R, PLATFORM_R + 0.4, 0.6, 28), pedMat);
+  platform.position.set(hx, PLATFORM_Y, hz);
+  platform.castShadow = true;
+  platform.receiveShadow = true;
+  platform.userData.isSurface = true;
+  scene.add(platform);
+  groundColliders.push(platform);
+
+  const canopy = new THREE.Mesh(new THREE.SphereGeometry(PLATFORM_R + 1.5, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2), domeMat.clone());
+  canopy.position.set(hx, PLATFORM_Y + 0.3, hz);
   canopy.castShadow = true;
   scene.add(canopy);
 
+  buildStairRamp(hx - (JOB_HUT_CIRCLE_GAP / 2 + JOB_HUT_R + 8), 0, hz, hx - PLATFORM_R + 1, PLATFORM_Y, hz, 3);
+  buildStairRamp(hx + (JOB_HUT_CIRCLE_GAP / 2 + JOB_HUT_R + 8), 0, hz, hx + PLATFORM_R - 1, PLATFORM_Y, hz, 3);
+
   const desk = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 0.7), deskMat);
-  desk.position.set(hx, 0.62 + 0.5, hz + 1.2);
+  desk.position.set(hx, PLATFORM_Y + 0.3 + 0.5, hz + 1.2);
   desk.rotation.y = Math.PI;
   desk.castShadow = true;
   desk.receiveShadow = true;
@@ -5574,15 +5608,15 @@ function buildJobHut(hx = JOB_HUT_X, hz = JOB_HUT_Z) {
   groundColliders.push(desk);
 
   const sample = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.15, 0.35), matPanel);
-  sample.position.set(hx, 0.62 + 1.08, hz + 1.05);
+  sample.position.set(hx, PLATFORM_Y + 0.3 + 1.08, hz + 1.05);
   scene.add(sample);
 
-  buildPerson(hx, hz + 2.1, Math.PI, 'talk');
+  buildPerson(hx, hz + 2.1, Math.PI, 'talk', PLATFORM_Y + 0.3);
 
   const label = makeTextSprite(`${solarJob.icon} ${solarJob.name}`, {
     fontSize: 30, color: '#ffe9b0', border: '#ffd54a', scale: 0.5,
   });
-  label.position.set(hx, 0.62 + 1.7, hz + 1.2);
+  label.position.set(hx, PLATFORM_Y + 0.3 + 1.7, hz + 1.2);
   scene.add(label);
 
   jobTileMeshes.push({ mesh: desk, job: solarJob, dx: hx, dz: hz + 1.2, facing: Math.PI });
@@ -6565,9 +6599,8 @@ function buildSolarFarmMap() {
 if (MAP_ID === 2) buildSolarFarmMap();
 
 // shared by every sandbox map's scatter loops to keep props from spawning inside/on
-// top of that map's own figure-8 Job Hut (its footprint reaches half the inter-circle
-// gap further out than a single dome's radius would)
-const JOB_HUT_FOOTPRINT_R = JOB_HUT_CIRCLE_GAP / 2 + JOB_HUT_R + 3;
+// top of that map's own figure-8 Job Hut (JOB_HUT_FOOTPRINT_R is declared up near
+// SPECIAL_ZONES)
 function nearJobHut(x, z, ox, oz) {
   return Math.hypot(x - (ox + JOB_HUT_OFFSET.dx), z - (oz + JOB_HUT_OFFSET.dz)) < JOB_HUT_FOOTPRINT_R;
 }

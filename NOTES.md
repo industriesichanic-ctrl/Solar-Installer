@@ -459,6 +459,43 @@ its intended group, no console errors, scene child count stayed
 reasonable (~4069 on Map 1 with all four maps' geometry loaded, since
 every map's hut is built per the existing per-map gating).
 
+### Job Hut fixes: no more building clipping, Solar's elevated third dome (v25)
+
+- **Buildings clipping the domes**: `JOB_HUT_X/Z/R`, `JOB_HUT_OFFSET`,
+  `JOB_HUT_CIRCLE_GAP`, and a new `JOB_HUT_FOOTPRINT_R` all got hoisted up
+  near `SPECIAL_ZONES` (before `BUILDING_DEFS` generation runs, since that
+  runs immediately at module load and the Job Hut's actual construction
+  code is much further down the file) so a Job Hut zone could be added to
+  `SPECIAL_ZONES` — the same exclusion list that already keeps buildings
+  out of the market square/park/salvage yard. This fixes it at the
+  *source* (buildings are never generated there) rather than trying to
+  detect and relocate already-placed ones after the fact, which is both
+  simpler and safer. The old duplicate declarations further down (where
+  `buildJobHut` actually lives) were removed in favor of the hoisted ones.
+- **Solar's elevated third dome**: replaced the ground-level pedestal with
+  an actual platform (`PLATFORM_Y` 20, `PLATFORM_R` 7) sitting above both
+  lower domes' apex (`domeR + 0.8 + 6 ≈ 18.8`), topped with its own small
+  canopy dome, reached by two long straight ramps
+  (`buildStairRamp(x0,y0,z0, x1,y1,z1, width)` — a single sloped
+  `BoxGeometry` oriented via `atan2` for yaw/pitch, pushed into
+  `groundColliders` like any other walkable surface) flanking the hut on
+  either side, each starting well outside the two lower domes' footprint
+  and rising up to the platform's edge. The lower domes themselves were
+  never collidable (`scene.add(dome)` with no `groundColliders`/
+  `wallColliders` push), so the ramps can pass near/through their
+  curvature without any physics conflict — only a visual approximation of
+  "the stairs run up alongside the dome," which reads fine at this
+  prototype's fidelity. `buildPerson` picked up an optional 5th `baseY`
+  parameter (default 0, purely additive) so Solar's clerk could be placed
+  up on the platform too.
+
+Verified live: `BUILDING_DEFS` has zero entries within 27 units of the
+hut center (previously some did clip the domes); Solar's desk now sits at
+`y: 20.8`, well above the lower domes; both ramps exist as real
+`groundColliders` entries flanking the hut at the expected X positions;
+Map 3 (Swamp) still builds cleanly with the same hoisted constants; no
+console errors anywhere.
+
 ### Explicitly deferred (asked for, not yet built)
 
 - Panels placed on the road getting cracked/shattered by passing traffic
