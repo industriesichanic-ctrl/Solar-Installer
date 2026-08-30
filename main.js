@@ -3142,6 +3142,7 @@ function harvestScrapPickup(idx) {
 // press E to pick up exactly one unit; falls back to the normal inverter-switch
 // interact if nothing salvageable is under the crosshair
 function handleInteractKey() {
+  if (typeof tryElevatorInteract === 'function' && tryElevatorInteract()) return;
   centerRay.setFromCamera({ x: 0, y: 0 }, camera);
   const hits = centerRay.intersectObjects(salvageableRubble.map((r) => r.mesh), false);
   if (hits.length && hits[0].distance <= 6) {
@@ -5294,6 +5295,7 @@ function animate() {
   updateWanderers(dt);
   if (MAP_ID === 2) checkMap2Goal();
   updateFireSpread(dt);
+  updateElevatorTower(dt);
   if (flashTimer > 0) { flashTimer -= dt; if (flashTimer <= 0) muzzleFlash.intensity = 0; }
   if (reloading) {
     reloadT -= dt;
@@ -5625,7 +5627,10 @@ let selectedJobTile = null;
 // the 24 non-Solar jobs split into two groups of 12 "relevant/similar" trades —
 // Group A leans structural/build trades, Group B leans outdoor/finishing/utility
 const JOB_HUT_GROUP_A = ['plumber', 'carpenter', 'bricklayer', 'concreter', 'roofer', 'glazier', 'fencer', 'electrician', 'aircon', 'heatpump', 'demolition', 'roadbuilder'];
-const JOB_HUT_GROUP_B = ['landscaper', 'painter', 'telecom', 'lampfixer', 'signage', 'irrigation', 'waste', 'poolbuilder', 'fountain', 'muralist', 'security', 'playground', 'liftelectrician', 'liftmechanic'];
+// lift electrician/mechanic moved to the front — they're one of the four "featured"
+// jobs (Solar Installer, Plumber, Lift Electrician, Lift Mechanic) the player is
+// steered toward first, alongside the elevator tower that actually uses them
+const JOB_HUT_GROUP_B = ['liftelectrician', 'liftmechanic', 'landscaper', 'painter', 'telecom', 'lampfixer', 'signage', 'irrigation', 'waste', 'poolbuilder', 'fountain', 'muralist', 'security', 'playground'];
 
 const pillarMat = new THREE.MeshStandardMaterial({ color: 0xc9c0ab, roughness: 0.7 });
 const domeMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.5, side: THREE.DoubleSide });
@@ -7112,6 +7117,115 @@ buildBadlandsMap(); // always built — part of the shared world now, see the MA
   groundColliders.push(baseGround);
 }
 
+// ---------- 20-floor Elevator Tower — the elevator starts stuck on the ground.
+// "Electrician" work: wire a panel array to the machine-room inverter with the Cable
+// Gun and switch it on. "Lift mechanic" work: once it has power, pull the release
+// lever (E) at the car's base. Then E on the car calls it between the ground and the
+// top floor. Deliberately reuses existing tools (Cable Gun + inverter switch + E
+// interact) rather than a dedicated new weapon set. ----------
+const ELEVATOR_TOWER_CX = -115, ELEVATOR_TOWER_CZ = -115; // well outside the city grid's
+// footprint (~103 max extent), so no overlap risk with already-placed buildings
+const elevatorTowerBox = buildBuilding({ cx: ELEVATOR_TOWER_CX, cz: ELEVATOR_TOWER_CZ, w: 18, d: 18, h: 80, mat: matBuilding[0], stairSide: 'minZ' });
+buildingBoxes.push(elevatorTowerBox);
+buildFloorAccess(elevatorTowerBox, 'minZ');
+
+const elevatorTower = (() => {
+  const midX = (elevatorTowerBox.minX + elevatorTowerBox.maxX) / 2;
+  const midZ = (elevatorTowerBox.minZ + elevatorTowerBox.maxZ) / 2;
+  const topY = elevatorTowerBox.topY;
+
+  // machine room inverter, mounted on the tower's own wall near the top — unwired
+  // and unpowered until the player runs a cable to it with the Cable Gun
+  const machineInv = placeInverter(new THREE.Vector3(elevatorTowerBox.minX, topY - 3, midZ), new THREE.Vector3(-1, 0, 0), 1);
+
+  // elevator shaft on the opposite wall face: an open frame of 4 corner rails, the
+  // car riding along them
+  const shaftX = elevatorTowerBox.maxX + 1.6;
+  const shaftHalf = 1.1;
+  const railMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3e, roughness: 0.4, metalness: 0.7 });
+  [[-shaftHalf, -shaftHalf], [shaftHalf, -shaftHalf], [-shaftHalf, shaftHalf], [shaftHalf, shaftHalf]].forEach(([dx, dz]) => {
+    const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, topY, 8), railMat);
+    rail.position.set(shaftX + dx, topY / 2, midZ + dz);
+    rail.castShadow = true;
+    scene.add(rail);
+  });
+
+  const car = new THREE.Group();
+  const carBody = new THREE.Mesh(
+    new THREE.BoxGeometry(shaftHalf * 2 - 0.15, 2.3, shaftHalf * 2 - 0.15),
+    new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.4, metalness: 0.5 })
+  );
+  carBody.castShadow = true;
+  carBody.receiveShadow = true;
+  carBody.userData.isSurface = true;
+  car.add(carBody);
+  const indicatorMat = new THREE.MeshStandardMaterial({ color: 0xff5050, emissive: 0x5a1010, emissiveIntensity: 1.1 });
+  const indicator = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), indicatorMat);
+  indicator.position.set(0, 1.3, shaftHalf - 0.05);
+  car.add(indicator);
+  const baseY = 1.15;
+  car.position.set(shaftX, baseY, midZ);
+  scene.add(car);
+  groundColliders.push(carBody);
+  worldMeshes.push(carBody);
+
+  // release lever at the base, right beside the car
+  const leverGroup = new THREE.Group();
+  const leverBase = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.9, 0.3), matToolBody);
+  leverBase.position.y = 0.45;
+  const leverArm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.6, 6), new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.5 }));
+  leverArm.position.set(0, 0.9, 0);
+  leverArm.rotation.z = -0.5;
+  leverGroup.add(leverBase, leverArm);
+  const leverPos = new THREE.Vector3(shaftX - 1.6, 0, midZ - 1.6);
+  leverGroup.position.copy(leverPos);
+  scene.add(leverGroup);
+
+  return {
+    box: elevatorTowerBox, inv: machineInv, car, indicatorMat, leverGroup, leverPos,
+    baseY, topY: topY - 3, rideDuration: 14,
+    leverFixed: false, operational: false, atTop: false, moving: false, riding: false,
+  };
+})();
+
+function updateElevatorTower(dt) {
+  const et = elevatorTower;
+  if (!et.moving) return;
+  const targetY = et.atTop ? et.topY : et.baseY;
+  const speed = Math.abs(et.topY - et.baseY) / et.rideDuration;
+  const dir = Math.sign(targetY - et.car.position.y);
+  const prevY = et.car.position.y;
+  et.car.position.y += dir * speed * dt;
+  if ((dir >= 0 && et.car.position.y >= targetY) || (dir < 0 && et.car.position.y <= targetY)) {
+    et.car.position.y = targetY;
+    et.moving = false;
+    et.riding = false;
+    showToast(et.atTop ? 'ELEVATOR ARRIVED — TOP FLOOR' : 'ELEVATOR ARRIVED — GROUND FLOOR');
+  }
+  if (et.riding) camera.position.y += (et.car.position.y - prevY);
+}
+
+function tryElevatorInteract() {
+  const et = elevatorTower;
+  if (!et.leverFixed && camera.position.distanceTo(et.leverPos) < 3.2) {
+    if (!et.inv.poweredOn) { showToast('NO POWER TO THE MACHINE ROOM YET — WIRE AND SWITCH ON THE INVERTER'); return true; }
+    et.leverFixed = true;
+    et.operational = true;
+    et.indicatorMat.color.setHex(0x4dff88);
+    et.indicatorMat.emissive.setHex(0x2a8850);
+    showToast('SAFETY BRAKE RELEASED — ELEVATOR OPERATIONAL');
+    return true;
+  }
+  if (et.operational && !et.moving && camera.position.distanceTo(et.car.position) < 3.5) {
+    et.riding = camera.position.distanceTo(et.car.position) < 2.2;
+    et.atTop = !et.atTop;
+    et.moving = true;
+    showToast(et.atTop ? 'ELEVATOR RISING' : 'ELEVATOR DESCENDING');
+    return true;
+  }
+  return false;
+}
+
 animate();
 
 window.__debug = {
@@ -7221,4 +7335,5 @@ window.__debug = {
   fireDig, fireFill, fireFillRemove, fireShape, firePlant, cyclePlantType,
   fireWall, fireLightpost, landscapeMounds, pondMeshes, plantType: () => plantType,
   buildBlobGeometry, buildShrub, buildGrassPatch,
+  elevatorTower, updateElevatorTower, tryElevatorInteract, elevatorTowerBox,
 };

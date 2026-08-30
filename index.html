@@ -219,20 +219,13 @@
     <div class="mapOption locked" data-map="10"><span class="num">10</span>Coming soon</div>
   </div>
   <div id="overlay">
-    <h1>SOLAR PANEL GUN — Prototype</h1>
+    <h1>OCT DISTRICT — Job Prototype</h1>
     <p>Click to lock mouse and play.</p>
-    <p><span class="key">WASD</span> move · <span class="key">Shift</span> sprint · <span class="key">Space</span> jump · <span class="key">Ctrl</span> crouch</p>
-    <p><span class="key">1</span> Solar Panel Gun · <span class="key">2</span> Cable Gun · <span class="key">3</span> Cable Router · <span class="key">4</span> Inverter Gun</p>
-    <p><b>Solar Panel Gun:</b> <span class="key">Left Click</span> fire a panel (snaps into a grid next to existing panels) · <span class="key">Right Click</span> pick one up · <span class="key">R</span> reload</p>
-    <p>Place 100 panels to unlock the <b>Area Tool</b>: hold <span class="key">Right Click</span> on a start panel/surface, look toward the far corner, release to build the whole rectangle at once</p>
-    <p><b>Cable Gun:</b> <span class="key">Left Click</span> a panel or inverter to start a run, click again to route each waypoint or click another panel/inverter to finish · <span class="key">Right Click</span> finish at the last point, or cancel/remove a run. Runs automatically bend at corners to hug the surface — roof, then down the wall, like real conduit.</p>
-    <p><b>Cable Router:</b> once a run exists, hold <span class="key">Left Click</span> on it, look to where you want it to bend, release to route it around an obstacle · <span class="key">Right Click</span> a bend to straighten it back out</p>
-    <p><b>Inverter Gun:</b> <span class="key">Left Click</span> mounts a 3kW inverter on a wall (wider grid spacing than panels) · on a tier-0 unit, <span class="key">Right Click</span> picks it up; three adjacent tier-0 units auto-combine into a 10kW unit. On a bigger unit, <span class="key">Right Click</span> instead <b>selects</b> it — highlight 3 same-tier big units anywhere to combine them again (10kW→20kW→50kW). Each inverter shows its kW rating and running kWh-produced sign.</p>
-    <p>Wire a panel array to an inverter with the Cable Gun (you can connect several separate arrays into one inverter — their kW stacks), then press <span class="key">E</span> on the inverter to switch it on — powered cables show a faint spark running down to the inverter, and its sign ticks up a live "connected/capacity" kW reading plus a running kWh-produced total. <b>Exceeding the connected capacity — whether at power-on or by wiring more in afterward while it's already running — will overload it</b>: the inverter, its chained partners, and the whole array catch fire, burn, and the cables fall apart.</p>
-    <p>Cable two inverters directly together to chain them — a heavier orange 16mm flex cable, not the usual red/black pair — and their kW capacity pools into one shared budget across the whole chain.</p>
-    <p>Panels touching each other in a grid combine their wattage into one block automatically — no cable needed between them — so one cable from anywhere in a 100-panel block carries the whole block's total to the inverter. Its sign shows load as a percentage: green under 50%, yellow 51-85%, red 86-97%, flashing red 98-100%, and past 100% it overloads.</p>
-    <p><b>Fire is dangerous and spreads.</b> An overloaded inverter and its array stay on fire (and stay live/electrified) until you deal with it — left alone for 30 seconds, the fire spreads to everything else on the same building and along every cable it's connected to, even into unrelated arrays, potentially setting a whole cabled-together district alight.</p>
-    <p>Give <b>1000 cable scrap + 500 panel scrap</b> to the salvage cleric (walk up close to them at the Salvage Yard) to unlock the <b>Water Gun</b> (<span class="key">5</span>). Switch a burning inverter <b>off</b> first (<span class="key">E</span>), then hold <span class="key">Left Click</span> to spray it and its panels out. <b>Spraying anything still live destroys it and electrocutes you</b> (respawn) — operational cables are safe to hit, but a burning, still-live cable is fatal too.</p>
+    <p><span class="key">WASD</span> move · <span class="key">Shift</span> sprint · <span class="key">Space</span> jump · <span class="key">Ctrl</span> crouch · <span class="key">E</span> interact</p>
+    <p>Head to the <b>Job Hut</b> and pick a trade to get started — four are ready to go:
+      <b>☀️ Solar Installer</b>, <b>🔧 Plumber</b>, <b>🔌 Lift Electrician</b>, <b>🛗 Lift Mechanic</b>.
+      Your left/right click tools change to match whichever job you pick.</p>
+    <p>Look for the stuck elevator in the tall tower — Lift Electrician wires it power, Lift Mechanic releases the brake, then ride it up.</p>
     <p><span class="key">M</span> toggle full map (scroll wheel to zoom) · <span class="key">Esc</span> release mouse</p>
   </div>
   <div id="crosshair"></div>
