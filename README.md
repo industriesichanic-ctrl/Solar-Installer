@@ -73,8 +73,11 @@ Selected at any Job Hut (walk up to a desk, aim and **RMB** to select,
 - **Landscaper** (Swamp) — dig, fill, shape terrain features, and cycle
   through planting trees/bushes/grass.
 - **Structural Engineer** (Badlands) — place walls and lit lightposts.
+- **Lift Mechanic/Electrician** — install a lift motor and pulleys, string
+  steel hoist cable and AC power cable to an MSWB, place a control panel and
+  pass its light-sequence test, then install the brakes.
 
-The other 20 trades are visible at their desks (with a planned tool
+The other 19 trades are visible at their desks (with a planned tool
 loadout shown on selection) but aren't playable yet — "no need to code the
 other jobs yet" is the standing rule for this project.
 

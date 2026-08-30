@@ -1808,6 +1808,98 @@ const lightpostGunGroup = new THREE.Group();
 lightpostGunGroup.position.set(0.22, -0.2, -0.4);
 lightpostGunGroup.visible = false;
 camera.add(lightpostGunGroup);
+
+// ---------- Lift Mechanic/Electrician view models (slots 1-6) ----------
+const matSteelCable = new THREE.MeshStandardMaterial({ color: 0xc0c4c8, roughness: 0.35, metalness: 0.85 });
+const liftMotorGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.28), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.16, 12), new THREE.MeshStandardMaterial({ color: 0x5a5f66, roughness: 0.4, metalness: 0.6 }));
+  drum.rotation.x = Math.PI / 2;
+  drum.position.set(0, 0.07, -0.05);
+  const gear = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.03, 10), new THREE.MeshStandardMaterial({ color: 0xffb020, roughness: 0.5, metalness: 0.5 }));
+  gear.rotation.x = Math.PI / 2;
+  gear.position.set(0, 0.07, 0.03);
+  liftMotorGunGroup.add(body, drum, gear);
+}
+liftMotorGunGroup.position.set(0.22, -0.2, -0.4);
+liftMotorGunGroup.visible = false;
+camera.add(liftMotorGunGroup);
+
+const liftPulleyGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.018, 8, 16), matSteelCable);
+  wheel.position.set(0, 0.04, -0.26);
+  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.14, 8), matToolBody);
+  muzzle.rotation.x = Math.PI / 2;
+  muzzle.position.set(0, 0, -0.3);
+  liftPulleyGunGroup.add(body, wheel, muzzle);
+}
+liftPulleyGunGroup.position.set(0.22, -0.2, -0.4);
+liftPulleyGunGroup.visible = false;
+camera.add(liftPulleyGunGroup);
+
+const liftCableGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.3), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const spool = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.1, 12), matAcCable);
+  spool.rotation.z = Math.PI / 2;
+  spool.position.set(0, 0.02, 0.06);
+  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.18, 8), new THREE.MeshStandardMaterial({ color: 0xffb020, roughness: 0.5, metalness: 0.5 }));
+  nozzle.rotation.x = Math.PI / 2;
+  nozzle.position.set(0, 0, -0.32);
+  liftCableGunGroup.add(body, spool, nozzle);
+}
+liftCableGunGroup.position.set(0.22, -0.2, -0.4);
+liftCableGunGroup.visible = false;
+camera.add(liftCableGunGroup);
+
+const controlPanelGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.13, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.02), new THREE.MeshStandardMaterial({ color: 0x1c2430, roughness: 0.5 }));
+  screen.position.set(0, 0.08, -0.02);
+  const led = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.005), new THREE.MeshStandardMaterial({ color: 0xff5050, emissive: 0x5a1010, emissiveIntensity: 1.1 }));
+  led.position.set(0, 0.08, -0.005);
+  controlPanelGunGroup.add(body, screen, led);
+}
+controlPanelGunGroup.position.set(0.22, -0.2, -0.4);
+controlPanelGunGroup.visible = false;
+camera.add(controlPanelGunGroup);
+
+const panelTesterGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.24), matToolBody);
+  body.position.set(0, 0, -0.09);
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.1, 12), new THREE.MeshStandardMaterial({ color: 0x4dff88, emissive: 0x1a5a30, emissiveIntensity: 0.9 }));
+  lens.rotation.x = Math.PI / 2;
+  lens.position.set(0, 0.02, -0.24);
+  panelTesterGunGroup.add(body, lens);
+}
+panelTesterGunGroup.position.set(0.22, -0.2, -0.4);
+panelTesterGunGroup.visible = false;
+camera.add(panelTesterGunGroup);
+
+const brakeGunGroup = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.1, 0.26), matToolBody);
+  body.position.set(0, 0, -0.1);
+  const jawMat = new THREE.MeshStandardMaterial({ color: 0xcc3030, roughness: 0.5, metalness: 0.3 });
+  const jaw1 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.18), jawMat);
+  jaw1.position.set(0.035, 0, -0.26);
+  const jaw2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.18), jawMat);
+  jaw2.position.set(-0.035, 0, -0.26);
+  brakeGunGroup.add(body, jaw1, jaw2);
+}
+brakeGunGroup.position.set(0.22, -0.2, -0.4);
+brakeGunGroup.visible = false;
+camera.add(brakeGunGroup);
+
 function refreshEquippedSkin() {
   customSkinGroup.clear();
   const skin = loadoutSkins[currentWeapon];
@@ -1870,6 +1962,7 @@ function setWeapon(w) {
   const demoJob = currentJob === 'demolition';
   const landscapeJob = currentJob === 'landscaper';
   const structEngJob = currentJob === 'structuralengineer';
+  const liftJob = currentJob === 'liftmech';
   // slots 1-4 are job-specific toolkits — nothing shows for either if no job is
   // picked yet, which is exactly what "no tools until you select a job" needs
   gunGroup.visible = solarJob && w === 1;
@@ -1891,11 +1984,17 @@ function setWeapon(w) {
   plantGunGroup.visible = landscapeJob && w === 4;
   wallGunGroup.visible = structEngJob && w === 1;
   lightpostGunGroup.visible = structEngJob && w === 2;
+  liftMotorGunGroup.visible = liftJob && w === 1;
+  liftPulleyGunGroup.visible = liftJob && w === 2;
+  liftCableGunGroup.visible = liftJob && w === 3;
+  controlPanelGunGroup.visible = liftJob && w === 4;
+  panelTesterGunGroup.visible = liftJob && w === 5;
+  brakeGunGroup.visible = liftJob && w === 6;
   pipeRouterGroup.visible = false; // no longer part of any loadout — kept only so old refs don't break
   // slots 5+ are universal utility tools for Solar/no-job; Plumber's slot 5 is the MSWB
   // gun instead, Demolition's slot 5 is just the existing Demo Tool (weapon 8) relabeled
-  waterGunGroup.visible = w === 5 && !plumberJob && !demoJob;
-  repairGunGroup.visible = w === 6;
+  waterGunGroup.visible = w === 5 && !plumberJob && !demoJob && !liftJob;
+  repairGunGroup.visible = w === 6 && !liftJob;
   bulkInverterGunGroup.visible = w === 7;
   demoToolGroup.visible = w === 8 || (w === 5 && demoJob);
   gun0Group.visible = w === 0;
@@ -1910,6 +2009,8 @@ function setWeapon(w) {
     chargeGunGroup.visible = false; digGunGroup.visible = false; fillGunGroup.visible = false;
     shapeGunGroup.visible = false; plantGunGroup.visible = false; wallGunGroup.visible = false;
     lightpostGunGroup.visible = false;
+    liftMotorGunGroup.visible = false; liftPulleyGunGroup.visible = false; liftCableGunGroup.visible = false;
+    controlPanelGunGroup.visible = false; panelTesterGunGroup.visible = false; brakeGunGroup.visible = false;
   }
   mouseDown = false;
   if (w === 2) cancelCable();
@@ -1978,11 +2079,13 @@ document.addEventListener('keydown', (e) => {
     // Plumber's slot 5 is the MSWB gun, Demolition's is the Debris Vacuum Gun — both
     // core loadout, not gated behind the Water Gun's salvage unlock (that unlock only
     // applies to Solar/no-job)
-    if (currentJob === 'plumber' || currentJob === 'demolition' || upgrades.waterGunUnlocked) setWeapon(5);
+    if (currentJob === 'plumber' || currentJob === 'demolition' || currentJob === 'liftmech' || upgrades.waterGunUnlocked) setWeapon(5);
     else showToast(`WATER GUN LOCKED — GIVE ${SCRAP_UNLOCK_CABLE} CABLE + ${SCRAP_UNLOCK_PANEL} PANEL SCRAP TO THE SALVAGE CLERIC`);
   }
   if (e.code === 'Digit6') {
-    if (upgrades.weapon6Unlocked) setWeapon(6);
+    // Lift Mechanic/Electrician's slot 6 is the Brake Installer — core loadout, not
+    // gated behind the Panel Repair Tool's shop purchase (Solar/no-job only)
+    if (currentJob === 'liftmech' || upgrades.weapon6Unlocked) setWeapon(6);
     else showToast('PANEL REPAIR TOOL LOCKED — BUY IT AT THE SALVAGE YARD WEAPON SHOP');
   }
   if (e.code === 'Digit7') {
@@ -2078,6 +2181,24 @@ document.addEventListener('mousedown', (e) => {
     if (e.button === 0) {
       if (currentWeapon === 1) fireWall();
       else if (currentWeapon === 2) fireLightpost();
+    }
+    return;
+  }
+
+  // Lift Mechanic/Electrician's 6 slots — LMB places/acts, RMB runs the two cable
+  // tools (steel cable pulley-to-pulley/motor on slot 2, AC cable motor-to-MSWB on
+  // slot 3, where RMB drops a waypoint mid-run instead of finishing it)
+  if (currentJob === 'liftmech' && currentWeapon >= 1 && currentWeapon <= 6) {
+    if (e.button === 0) {
+      if (currentWeapon === 1) fireLiftMotor();
+      else if (currentWeapon === 2) fireLiftPulley();
+      else if (currentWeapon === 3) cableClick();
+      else if (currentWeapon === 4) fireControlPanel();
+      else if (currentWeapon === 5) fireControlPanelTest();
+      else if (currentWeapon === 6) fireBrake();
+    } else if (e.button === 2) {
+      if (currentWeapon === 2) cableClick();
+      else if (currentWeapon === 3) liftCableWaypoint();
     }
     return;
   }
@@ -3687,11 +3808,21 @@ function buildRoutedLegs(rawPoints) {
   return legs;
 }
 
-function buildCableSegment(pt0, n0, pt1, n1, group, rawSegIndex, heavy, pipe, acCable) {
+function buildCableSegment(pt0, n0, pt1, n1, group, rawSegIndex, heavy, pipe, acCable, steel) {
   const p0 = pt0.clone().addScaledVector(n0, CABLE_FLUSH);
   const p1 = pt1.clone().addScaledVector(n1, CABLE_FLUSH);
   const dir = new THREE.Vector3().subVectors(p1, p0);
   if (dir.length() < 0.02) return;
+
+  if (steel) {
+    // hoist rigging: a single thin bare steel cable, not dual electrical strands
+    const s = new THREE.Mesh(cableUnitGeo, matSteelCable);
+    alignCylinderBetween(s, p0, p1);
+    s.castShadow = true;
+    s.userData.rawSegIndex = rawSegIndex;
+    group.add(s);
+    return;
+  }
 
   if (acCable) {
     // electrical run: one solid white TPS cable, not dual red/black strands
@@ -3751,8 +3882,12 @@ function rebuildCableMesh(cableObj) {
   const plumbingTypes = ['tap', 'heatpump', 'watermain'];
   const pipe = !acCable && !!((cableObj.startAnchor && plumbingTypes.includes(cableObj.startAnchor.type))
     || (cableObj.endAnchor && plumbingTypes.includes(cableObj.endAnchor.type)));
+  // steel hoist cable: a run touching a pulley (pulley-to-pulley or pulley-to-motor)
+  // that isn't the motor's separate electrical run to an MSWB
+  const steel = !acCable && !pipe && !!((cableObj.startAnchor && cableObj.startAnchor.type === 'pulley')
+    || (cableObj.endAnchor && cableObj.endAnchor.type === 'pulley'));
   const legs = buildRoutedLegs(cableObj.rawPoints);
-  legs.forEach((leg) => buildCableSegment(leg.a.point, leg.a.normal, leg.b.point, leg.b.normal, group, leg.rawSegIndex, heavy, pipe, acCable));
+  legs.forEach((leg) => buildCableSegment(leg.a.point, leg.a.normal, leg.b.point, leg.b.normal, group, leg.rawSegIndex, heavy, pipe, acCable, steel));
   group.userData.cableRef = cableObj;
   scene.add(group);
   cableObj.mesh = group;
@@ -3809,6 +3944,14 @@ function findNearestAnchor(point, maxDist) {
     const d = m.pos.distanceTo(point);
     if (d < bestDist) { bestDist = d; best = m; bestType = 'mswb'; }
   }
+  for (const lm of liftMotors) {
+    const d = lm.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = lm; bestType = 'liftmotor'; }
+  }
+  for (const p of pulleys) {
+    const d = p.pos.distanceTo(point);
+    if (d < bestDist) { bestDist = d; best = p; bestType = 'pulley'; }
+  }
   return best ? { obj: best, type: bestType } : null;
 }
 
@@ -3818,6 +3961,8 @@ function anchorThickness(anchor) {
   if (anchor.type === 'tap' || anchor.type === 'watermain') return 0.15;
   if (anchor.type === 'switch') return 0.1;
   if (anchor.type === 'mswb') return 0.15;
+  if (anchor.type === 'liftmotor') return 0.28;
+  if (anchor.type === 'pulley') return 0.12;
   if (anchor.type === 'battery') return BATTERY_THICK;
   if (anchor.type === 'switchboard') return SWITCHBOARD_THICK;
   return INVERTER_THICK;
@@ -5071,6 +5216,27 @@ function updateHud() {
   } else if (currentJob === 'structuralengineer' && currentWeapon === 2) {
     weaponLine = `<b>2: Lightpost Gun</b><br>` +
       `<span class="good">LMB</span> place a lit lightpost wherever you're aiming`;
+  } else if (currentJob === 'liftmech' && currentWeapon === 1) {
+    const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
+    weaponLine = `<b>1: Motor Install Gun</b> — ${reloadMsg}<br>` +
+      `<span class="good">LMB</span> fire onto a wall to install a lift motor &nbsp; <span class="good">R</span> reload`;
+  } else if (currentJob === 'liftmech' && currentWeapon === 2) {
+    const cableMsg = cableActive ? `<span class="good">routing…</span> ${cableActive.points.length} point(s)` : 'ready';
+    weaponLine = `<b>2: Pulley Install Gun</b> — ${cableMsg}<br>` +
+      `<span class="good">LMB</span> place a pulley &nbsp; <span class="good">RMB</span> run a steel cable pulley-to-pulley or pulley-to-motor`;
+  } else if (currentJob === 'liftmech' && currentWeapon === 3) {
+    const cableMsg = cableActive ? `<span class="good">routing…</span> ${cableActive.points.length} point(s)` : 'ready';
+    weaponLine = `<b>3: Elec Cable Gun</b> — ${cableMsg}<br>` +
+      `<span class="good">LMB</span> start/extend/finish on a motor or MSWB &nbsp; <span class="good">RMB</span> drop a waypoint mid-run`;
+  } else if (currentJob === 'liftmech' && currentWeapon === 4) {
+    weaponLine = `<b>4: Control Panel Gun</b> — ${controlPanels.length} placed<br>` +
+      `<span class="good">LMB</span> fire onto a wall to place a panel`;
+  } else if (currentJob === 'liftmech' && currentWeapon === 5) {
+    weaponLine = `<b>5: Control Panel Tester</b> — ${totalLiftPanelsCommissioned} commissioned<br>` +
+      `<span class="good">LMB</span> aim at a panel to start the test, watch the lights, then click them back in the same order`;
+  } else if (currentJob === 'liftmech' && currentWeapon === 6) {
+    weaponLine = `<b>6: Brake Installer</b> — ${totalBrakesInstalled} installed<br>` +
+      `<span class="good">LMB</span> fire within ${BRAKE_RANGE}m of a lift motor to install a brake (up to ${MAX_BRAKES_PER_MOTOR} per motor)`;
   } else if (currentWeapon === 1 && MAP_ID !== 1 && currentJob !== 'landscaper' && currentJob !== 'structuralengineer') {
     const reloadMsg = reloading ? `<span class="bad">RELOADING…</span>` : `<b>${ammo}</b> / ${effMagSize()}`;
     const cutterName = { 2: 'Tree Cutter', 3: 'Reed Cutter', 4: 'Scrub Cutter' }[MAP_ID] || 'Cutter';
@@ -5205,8 +5371,8 @@ function updateHud() {
     }
   }
   const weaponKeys = ['1', '2', '3', '4'];
-  if (upgrades.waterGunUnlocked) weaponKeys.push('5');
-  if (upgrades.weapon6Unlocked) weaponKeys.push('6');
+  if (upgrades.waterGunUnlocked || currentJob === 'plumber' || currentJob === 'demolition' || currentJob === 'liftmech') weaponKeys.push('5');
+  if (upgrades.weapon6Unlocked || currentJob === 'liftmech') weaponKeys.push('6');
   if (upgrades.weapon7Unlocked) weaponKeys.push('7');
   if (upgrades.demoToolUnlocked) weaponKeys.push('8');
   if (upgrades.gun0Unlocked) weaponKeys.push('0');
@@ -5220,6 +5386,8 @@ function updateHud() {
   } else if (currentJob === 'demolition') {
     const armedCharges = Array.from(demolitionCharges.values()).reduce((s, a) => s + a.length, 0);
     bottomLine = `Scanned: <b>${scannedBuildings.size}</b> — Charges armed: <b>${armedCharges}</b> — Demolished: <b>${totalControlledDemolitions}</b>${salvageLine}`;
+  } else if (currentJob === 'liftmech') {
+    bottomLine = `Motors: <b>${totalLiftMotorsPlaced}</b> — Pulleys: <b>${pulleys.length}</b> — Panels commissioned: <b>${totalLiftPanelsCommissioned}</b>/${controlPanels.length} — Brakes: <b>${totalBrakesInstalled}</b>${salvageLine}`;
   } else {
     bottomLine = `Connected: <b>${totalConnected}</b> ${stars} — ${progressMsg}${salvageLine}${map2Line}`;
   }
@@ -5247,6 +5415,13 @@ function updateHud() {
       `Buildings demolished: <b>${totalControlledDemolitions}</b><br>` +
       `Barriers placed: <b>${totalBarriersPlaced}</b><br>` +
       `Debris cleared: <b>${totalDemoDebrisCleared}</b>`;
+  } else if (currentJob === 'liftmech') {
+    panelCountEl.innerHTML =
+      `Lift motors placed: <b>${totalLiftMotorsPlaced}</b><br>` +
+      `Pulleys placed: <b>${pulleys.length}</b><br>` +
+      `Control panels commissioned: <b>${totalLiftPanelsCommissioned}</b> / ${controlPanels.length}<br>` +
+      `Brakes installed: <b>${totalBrakesInstalled}</b><br>` +
+      `Cables/pulley runs: <b>${cables.length}</b>`;
   } else {
     const kw = (totalWattsInstalled / 1000).toFixed(2);
     panelCountEl.innerHTML =
@@ -5284,6 +5459,10 @@ function animate() {
   if (bulkInverterCooldown > 0) bulkInverterCooldown -= dt;
   if (repairCooldown > 0) repairCooldown -= dt;
   if (demoToolCooldown > 0) demoToolCooldown -= dt;
+  if (pulleyFireCooldown > 0) pulleyFireCooldown -= dt;
+  if (controlPanelFireCooldown > 0) controlPanelFireCooldown -= dt;
+  if (brakeFireCooldown > 0) brakeFireCooldown -= dt;
+  updateControlPanelTests(dt);
   updateWaterBursts(dt);
   updateDemoDrag(dt);
   updateElectricalSparks(dt);
@@ -5551,10 +5730,8 @@ const JOBS = [
     tools: ['Indoor Unit Gun', 'Outdoor Unit Gun', 'Refrigerant Pipe Gun (LMB supply/RMB return)', 'Duct Gun', 'Vent Gun', 'Vacuum/Test Gun'] },
   { id: 'heatpump', name: 'Heat Pump Installer', icon: '🌡️', unlocked: true,
     tools: ['Heat Pump Gun', 'Flow Pipe Gun (LMB flow/RMB return)', 'Buffer Tank Gun', 'Circulation Pump Gun', 'Thermostat Gun', 'Commissioning Gun'] },
-  { id: 'liftelectrician', name: 'Lift Electrician', icon: '🔌', unlocked: true,
-    tools: ['Control Panel Gun', 'Wiring Gun (LMB power/RMB signal)', 'Sensor Gun', 'Backup Power Gun'] },
-  { id: 'liftmechanic', name: 'Lift Mechanic', icon: '🛗', unlocked: true,
-    tools: ['Rail Gun', 'Cab Gun', 'Cable and Pulley Gun', 'Door Mechanism Gun', 'Safety Brake Gun', 'Inspection Gun'] },
+  { id: 'liftmech', name: 'Lift Mechanic/Electrician', icon: '🛗', unlocked: true,
+    tools: ['Motor Install Gun', 'Pulley Install Gun (LMB place/RMB steel cable)', 'Elec Cable Gun (LMB run/RMB waypoint)', 'Control Panel Gun', 'Control Panel Tester', 'Brake Installer'] },
   { id: 'carpenter', name: 'Carpenter', icon: '🔨', unlocked: false,
     tools: ['Timber Frame Gun', 'Wall Panel Gun', 'Floorboard Gun', 'Door and Window Gun (LMB door/RMB window)', 'Nail Gun', 'Saw Gun'] },
   { id: 'playground', name: 'Playground Builder', icon: '🎠', unlocked: false,
@@ -5630,7 +5807,7 @@ const JOB_HUT_GROUP_A = ['plumber', 'carpenter', 'bricklayer', 'concreter', 'roo
 // lift electrician/mechanic moved to the front — they're one of the four "featured"
 // jobs (Solar Installer, Plumber, Lift Electrician, Lift Mechanic) the player is
 // steered toward first, alongside the elevator tower that actually uses them
-const JOB_HUT_GROUP_B = ['liftelectrician', 'liftmechanic', 'landscaper', 'painter', 'telecom', 'lampfixer', 'signage', 'irrigation', 'waste', 'poolbuilder', 'fountain', 'muralist', 'security', 'playground'];
+const JOB_HUT_GROUP_B = ['liftmech', 'landscaper', 'painter', 'telecom', 'lampfixer', 'signage', 'irrigation', 'waste', 'poolbuilder', 'fountain', 'muralist', 'security', 'playground'];
 
 const pillarMat = new THREE.MeshStandardMaterial({ color: 0xc9c0ab, roughness: 0.7 });
 const domeMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.5, side: THREE.DoubleSide });
@@ -5868,6 +6045,7 @@ const LOADOUT_SLOT_NAMES = {
   demolition: ['Safety Barrier Gun', 'Structural Scanner Gun', 'Breaker Gun', 'Controlled Charge Gun', 'Debris Vacuum Gun'],
   landscaper: ['Digging Gun', 'Dirt Fill Gun', 'Shaping Tool', 'Planting Tool'],
   structuralengineer: ['Wall Gun', 'Lightpost Gun'],
+  liftmech: ['Motor Install Gun', 'Pulley Install Gun', 'Elec Cable Gun', 'Control Panel Gun', 'Control Panel Tester', 'Brake Installer'],
 };
 const LOADOUT_SLOT_MODELS = {
   solar: [gunGroup, cableGunGroup, routerGunGroup, inverterGunGroup],
@@ -5875,6 +6053,7 @@ const LOADOUT_SLOT_MODELS = {
   demolition: [barrierGunGroup, scannerGunGroup, breakerGunGroup, chargeGunGroup, demoToolGroup],
   landscaper: [digGunGroup, fillGunGroup, shapeGunGroup, plantGunGroup],
   structuralengineer: [wallGunGroup, lightpostGunGroup],
+  liftmech: [liftMotorGunGroup, liftPulleyGunGroup, liftCableGunGroup, controlPanelGunGroup, panelTesterGunGroup, brakeGunGroup],
 };
 function buildGenericToolIcon() {
   const g = new THREE.Group();
@@ -6483,6 +6662,287 @@ function toggleMswbUnderCrosshair() {
   m.indicatorMat.emissive.setHex(m.breakerOn ? 0x2a8850 : 0x5a1010);
   showMilestoneBanner(m.breakerOn ? '🔌' : '⚠', m.breakerOn ? 'MSWB BREAKER ON' : 'MSWB BREAKER OFF');
   return true;
+}
+
+// ---------- Lift Mechanic/Electrician toolset (combines the old separate Lift
+// Electrician/Lift Mechanic desks into one job, per the user's spec) ----------
+// 1: Motor Install Gun — places a lift motor (anchor type 'liftmotor'), free wall
+//    placement like the MSWB, shares the panel gun's ammo/reload economy.
+// 2: Pulley Install Gun — LMB places a pulley (anchor type 'pulley'); RMB runs a bare
+//    steel cable pulley-to-pulley or pulley-to-motor via the generic cable system
+//    (reuses cableClick's full start/extend/finish lifecycle on one button since LMB
+//    is taken by placement) — renders as a single steel cable, see rebuildCableMesh.
+// 3: Elec Cable Gun — wires a motor to an MSWB via the generic cable system (already
+//    renders as the white AC cable since 'mswb' is an electrical anchor type); RMB is
+//    a waypoint drop mid-run instead of finishing, per spec ("RMB is waypoint").
+// 4: Control Panel Gun — free wall placement, 4 test lights built in.
+// 5: Control Panel Tester — aim + fire on an uncommissioned panel to play back a
+//    Simon-says light sequence, then click the lights back in that order; getting it
+//    right commissions the panel, getting it wrong resets and replays the sequence.
+// 6: Brake Installer — placed within range of a lift motor, same proximity-gate shape
+//    as the Power Switch/heat pump pairing in the Plumbing toolset.
+const liftMotors = [];
+const pulleys = [];
+const controlPanels = [];
+const brakes = [];
+let totalLiftMotorsPlaced = 0;
+let totalLiftPanelsCommissioned = 0;
+let totalBrakesInstalled = 0;
+const matLiftMotorBody = new THREE.MeshStandardMaterial({ color: 0x5a5f66, roughness: 0.4, metalness: 0.6 });
+const matPulleyBody = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.5, metalness: 0.4 });
+const matControlPanelBody = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.4, metalness: 0.5 });
+const matBrakeBody = new THREE.MeshStandardMaterial({ color: 0xcc3030, roughness: 0.5, metalness: 0.3 });
+
+function getLiftMotorPlacementTarget() {
+  const hit = findInverterPlacementHit();
+  if (!hit) return null;
+  return { point: hit.point, normal: hit.normal };
+}
+function isLiftMotorSpotFree(point) {
+  for (const m of liftMotors) if (m.pos.distanceTo(point) < 0.6) return false;
+  return true;
+}
+function placeLiftMotor(point, normal) {
+  const group = new THREE.Group();
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.5, 14), matLiftMotorBody);
+  drum.rotation.z = Math.PI / 2;
+  drum.castShadow = true;
+  drum.receiveShadow = true;
+  const gear = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.08, 12), new THREE.MeshStandardMaterial({ color: 0xffb020, roughness: 0.5, metalness: 0.5 }));
+  gear.rotation.z = Math.PI / 2;
+  gear.position.x = 0.29;
+  group.add(drum, gear);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, 0.24);
+  scene.add(group);
+  worldMeshes.push(drum);
+  const lm = { mesh: group, pos: point.clone(), normal: normal.clone(), wiredCables: new Set() };
+  liftMotors.push(lm);
+  totalLiftMotorsPlaced++;
+  if (liftMotors.length === 1) showMilestoneBanner('🛗', 'LIFT MOTOR INSTALLED!');
+  return lm;
+}
+function fireLiftMotor() {
+  if (fireCooldown > 0 || reloading) return;
+  if (ammo <= 0) { reload(); return; }
+  fireCooldown = FIRE_COOLDOWN * upgrades.fireRateMul;
+  ammo--;
+  flashTimer = 0.06;
+  muzzleFlash.intensity = 3.5;
+  const target = getLiftMotorPlacementTarget();
+  if (target && isLiftMotorSpotFree(target.point)) placeLiftMotor(target.point, target.normal);
+}
+
+function getPulleyPlacementTarget() {
+  const hit = findInverterPlacementHit();
+  if (!hit) return null;
+  return { point: hit.point, normal: hit.normal };
+}
+function isPulleySpotFree(point) {
+  for (const p of pulleys) if (p.pos.distanceTo(point) < 0.4) return false;
+  return true;
+}
+function placePulley(point, normal) {
+  const group = new THREE.Group();
+  const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.04, 8, 16), matSteelCable);
+  wheel.castShadow = true;
+  const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.06), matPulleyBody);
+  bracket.position.y = -0.12;
+  group.add(wheel, bracket);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, 0.16);
+  scene.add(group);
+  worldMeshes.push(wheel);
+  const p = { mesh: group, pos: point.clone(), normal: normal.clone(), wiredCables: new Set() };
+  pulleys.push(p);
+  return p;
+}
+let pulleyFireCooldown = 0;
+function fireLiftPulley() {
+  if (pulleyFireCooldown > 0) return;
+  pulleyFireCooldown = 0.28;
+  const target = getPulleyPlacementTarget();
+  if (!target) return;
+  if (isPulleySpotFree(target.point)) placePulley(target.point, target.normal);
+}
+
+// elec cable gun's RMB — drops a waypoint into the run in progress instead of
+// finishing it (LMB, i.e. cableClick, still starts/extends/finishes on an anchor)
+function liftCableWaypoint() {
+  if (!cableActive) { showToast('AIM AT A LIFT MOTOR AND LEFT-CLICK TO START A CABLE RUN'); return; }
+  const hit = raycastWorldHit();
+  if (!hit) return;
+  cableActive.points.push({ point: hit.point.clone(), normal: hit.normal.clone() });
+  showToast('WAYPOINT ADDED');
+}
+
+const LIFT_PANEL_LIGHT_COUNT = 4;
+function getControlPanelPlacementTarget() {
+  const hit = findInverterPlacementHit();
+  if (!hit) return null;
+  return { point: hit.point, normal: hit.normal };
+}
+function isControlPanelSpotFree(point) {
+  for (const p of controlPanels) if (p.pos.distanceTo(point) < 0.8) return false;
+  return true;
+}
+function placeControlPanel(point, normal) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.12), matControlPanelBody);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+  const lights = [];
+  for (let i = 0; i < LIFT_PANEL_LIGHT_COUNT; i++) {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xff5050, emissive: 0x5a1010, emissiveIntensity: 1.0 });
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 10), mat);
+    bulb.position.set(-0.15 + i * 0.1, 0.15, 0.07);
+    group.add(bulb);
+    lights.push({ mesh: bulb, mat });
+  }
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, 0.07);
+  scene.add(group);
+  worldMeshes.push(body);
+  const panel = { mesh: group, pos: point.clone(), normal: normal.clone(), lights, testState: 'idle', sequence: [], playbackIndex: 0, playbackTimer: 0, inputIndex: 0, commissioned: false };
+  controlPanels.push(panel);
+  return panel;
+}
+let controlPanelFireCooldown = 0;
+function fireControlPanel() {
+  if (controlPanelFireCooldown > 0) return;
+  controlPanelFireCooldown = 0.28;
+  const target = getControlPanelPlacementTarget();
+  if (!target) return;
+  if (isControlPanelSpotFree(target.point)) placeControlPanel(target.point, target.normal);
+}
+
+// ---------- Control Panel Tester (slot 5) — a Simon-says light sequence: a shuffled
+// order of the panel's lights flashes red once each, then the player has to click them
+// back in the same order; a wrong click resets and replays the sequence, an all-green
+// pass commissions the panel ----------
+function setLightColor(l, state) {
+  const colors = { red: [0xff5050, 0x5a1010], green: [0x4dff88, 0x2a8850], off: [0x662222, 0x1a0505], flash: [0xffffff, 0xffffff] };
+  const [c, e] = colors[state];
+  l.mat.color.setHex(c);
+  l.mat.emissive.setHex(e);
+  l.mat.emissiveIntensity = state === 'flash' ? 1.6 : 1.0;
+}
+function shuffledIndices(n) {
+  const arr = Array.from({ length: n }, (_, i) => i);
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+function startPanelTest(panel) {
+  panel.testState = 'showing';
+  panel.sequence = shuffledIndices(LIFT_PANEL_LIGHT_COUNT);
+  panel.playbackIndex = 0;
+  panel.playbackTimer = 0.4;
+  panel.inputIndex = 0;
+  panel.lights.forEach((l) => setLightColor(l, 'red'));
+  showToast('WATCH THE SEQUENCE…');
+}
+function findControlPanelUnderCrosshair() {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(controlPanels.map((p) => p.mesh), true);
+  if (!hits.length) return null;
+  let obj = hits[0].object;
+  while (obj && !controlPanels.some((p) => p.mesh === obj)) obj = obj.parent;
+  return controlPanels.find((p) => p.mesh === obj) || null;
+}
+function findLightUnderCrosshair(panel) {
+  centerRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = centerRay.intersectObjects(panel.lights.map((l) => l.mesh), false);
+  if (!hits.length) return -1;
+  return panel.lights.findIndex((l) => l.mesh === hits[0].object);
+}
+function fireControlPanelTest() {
+  const panel = findControlPanelUnderCrosshair();
+  if (!panel) { showToast('AIM AT A CONTROL PANEL TO TEST IT'); return; }
+  if (panel.commissioned) { showToast('PANEL ALREADY COMMISSIONED'); return; }
+  if (panel.testState === 'idle') { startPanelTest(panel); return; }
+  if (panel.testState !== 'input') return; // still playing back the sequence, ignore clicks
+  const idx = findLightUnderCrosshair(panel);
+  if (idx < 0) return;
+  if (idx === panel.sequence[panel.inputIndex]) {
+    setLightColor(panel.lights[idx], 'green');
+    panel.inputIndex++;
+    if (panel.inputIndex >= panel.sequence.length) {
+      panel.testState = 'idle';
+      panel.commissioned = true;
+      totalLiftPanelsCommissioned++;
+      showMilestoneBanner('🛗', 'CONTROL PANEL COMMISSIONED!');
+    }
+  } else {
+    showDangerBanner('⚠ WRONG ORDER — RESETTING');
+    startPanelTest(panel);
+  }
+}
+function updateControlPanelTests(dt) {
+  controlPanels.forEach((panel) => {
+    if (panel.testState !== 'showing') return;
+    panel.playbackTimer -= dt;
+    if (panel.playbackTimer > 0) return;
+    if (panel.playbackIndex > 0) setLightColor(panel.lights[panel.sequence[panel.playbackIndex - 1]], 'off');
+    if (panel.playbackIndex >= panel.sequence.length) {
+      panel.testState = 'input';
+      showToast('YOUR TURN — CLICK THE LIGHTS IN THE SAME ORDER');
+      return;
+    }
+    setLightColor(panel.lights[panel.sequence[panel.playbackIndex]], 'flash');
+    panel.playbackIndex++;
+    panel.playbackTimer = 0.55;
+  });
+}
+
+// ---------- Brake Installer (slot 6) — same proximity-gate shape as the Power
+// Switch/heat pump pairing: must be within BRAKE_RANGE of a lift motor ----------
+const BRAKE_RANGE = 2.0;
+const MAX_BRAKES_PER_MOTOR = 4;
+function getBrakePlacementTarget() {
+  const hit = findInverterPlacementHit();
+  if (!hit) return null;
+  let nearestMotor = null, nearestDist = BRAKE_RANGE;
+  for (const m of liftMotors) {
+    const d = m.pos.distanceTo(hit.point);
+    if (d < nearestDist) { nearestDist = d; nearestMotor = m; }
+  }
+  if (!nearestMotor) return null;
+  return { point: hit.point, normal: hit.normal, nearestMotor };
+}
+function placeBrake(point, normal) {
+  const group = new THREE.Group();
+  const jaw1 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.2), matBrakeBody);
+  jaw1.position.x = 0.04;
+  const jaw2 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.2), matBrakeBody);
+  jaw2.position.x = -0.04;
+  group.add(jaw1, jaw2);
+  const up = new THREE.Vector3(0, 1, 0);
+  group.quaternion.setFromUnitVectors(up, normal);
+  group.position.copy(point).addScaledVector(normal, 0.05);
+  scene.add(group);
+  worldMeshes.push(jaw1);
+  const b = { mesh: group, pos: point.clone(), normal: normal.clone() };
+  brakes.push(b);
+  return b;
+}
+let brakeFireCooldown = 0;
+function fireBrake() {
+  if (brakeFireCooldown > 0) return;
+  brakeFireCooldown = 0.28;
+  const target = getBrakePlacementTarget();
+  if (!target) { showToast(`MUST BE PLACED WITHIN ${BRAKE_RANGE}M OF A LIFT MOTOR`); return; }
+  const nearby = brakes.filter((b) => b.pos.distanceTo(target.nearestMotor.pos) < BRAKE_RANGE + 1).length;
+  if (nearby >= MAX_BRAKES_PER_MOTOR) { showToast(`BRAKE RAIL FULL — MAX ${MAX_BRAKES_PER_MOTOR} PER MOTOR`); return; }
+  placeBrake(target.point, target.normal);
+  totalBrakesInstalled++;
+  if (nearby + 1 === MAX_BRAKES_PER_MOTOR) showMilestoneBanner('🛗', 'LIFT SAFE TO OPERATE — BRAKES INSTALLED!');
 }
 
 // ---------- Screen shake — controlled demolitions only, decays linearly, applied once
@@ -7320,6 +7780,12 @@ window.__debug = {
   elecSwitches, mswbs, fireSwitch, fireMswb, toggleSwitchUnderCrosshair, toggleMswbUnderCrosshair,
   getSwitchPlacementTarget, isSwitchSpotFree, placeSwitch, getMswbPlacementTarget, isMswbSpotFree,
   placeMswb, isSwitchMswbPowered, isHeatPumpPlumbed, spawnWaterBurst, MAX_TAPS_PER_HEATPUMP,
+  liftMotors, pulleys, controlPanels, brakes, fireLiftMotor, fireLiftPulley, liftCableWaypoint,
+  fireControlPanel, fireControlPanelTest, fireBrake, startPanelTest, findControlPanelUnderCrosshair,
+  placeLiftMotor, placePulley, placeControlPanel, placeBrake, updateControlPanelTests,
+  totalLiftMotorsPlaced: () => totalLiftMotorsPlaced,
+  totalLiftPanelsCommissioned: () => totalLiftPanelsCommissioned,
+  totalBrakesInstalled: () => totalBrakesInstalled,
   loadoutSkins, hotSwapSlot, findLoadoutRowUnderCrosshair, updateJobLoadoutPanel,
   jobLoadoutPanel, loadoutRows, refreshEquippedSkin,
   scannedBuildings, demolitionCharges, MAX_CHARGES_PER_BUILDING,

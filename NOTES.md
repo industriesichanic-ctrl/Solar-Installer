@@ -1534,6 +1534,77 @@ car from the base correctly starts a ride with `riding: true`; fast-forwarding
 `topY` and carries the simulated player's camera Y up by the same delta, then
 correctly stops. No console errors across any of it.
 
+### Lift Electrician + Lift Mechanic merged into one job, given a real 6-slot toolkit (v30)
+
+Superseded v24's "reuse existing tools" decision — the user this time itemized a
+specific 6-gun loadout, so `liftelectrician`/`liftmechanic` (previously separate,
+toolless `JOBS` entries) are now one job, `liftmech`, with real weapons:
+
+- **1: Motor Install Gun** (`fireLiftMotor`/`placeLiftMotor`) — free wall placement
+  like the MSWB, shares the panel gun's ammo/reload economy (anchor type `liftmotor`,
+  pushed into `liftMotors[]`).
+- **2: Pulley Install Gun** (`fireLiftPulley`/`placePulley` on LMB) — places a pulley
+  (anchor type `pulley`, `pulleys[]`); RMB runs `cableClick`'s full start/extend/finish
+  lifecycle on its own (no `cableRightClick` needed — LMB is taken by placement, so RMB
+  alone does the whole cable job) to string a bare steel cable pulley-to-pulley or
+  pulley-to-motor.
+- **3: Elec Cable Gun** — wires a motor to an MSWB via the *same* generic cable system;
+  no rendering change needed since `mswb` was already in `rebuildCableMesh`'s
+  `electricalTypes`, so any cable touching one renders as the white AC cable
+  automatically. RMB is a new `liftCableWaypoint()` — drops a raw waypoint into the
+  run in progress instead of finishing it, the literal "RMB is waypoint" ask (every
+  other cable tool's RMB finishes/cancels; this one doesn't, LMB/`cableClick` still
+  finishes on hitting an anchor).
+- **4: Control Panel Gun** (`fireControlPanel`/`placeControlPanel`) — free wall
+  placement, builds 4 small light-bulb meshes into the panel for slot 5 to use.
+- **5: Control Panel Tester** — a Simon-says minigame per panel
+  (`startPanelTest`/`updateControlPanelTests`/`fireControlPanelTest`): a shuffled
+  order of the panel's own lights flashes red once each, then the player has to click
+  them back in that order via `findLightUnderCrosshair`; a wrong click replays the
+  sequence from scratch, an all-green pass sets `panel.commissioned = true` and pops a
+  milestone banner. One state machine per panel (`idle` → `showing` → `input`), ticked
+  every frame from `animate()` regardless of which weapon is currently equipped.
+- **6: Brake Installer** (`fireBrake`/`placeBrake`) — same proximity-gate shape as the
+  Plumbing toolset's Power Switch/heat pump pairing (`BRAKE_RANGE` 2m of the nearest
+  `liftMotors[]` entry), capped at `MAX_BRAKES_PER_MOTOR` (4).
+
+New rendering type: `rebuildCableMesh` picked up a `steel` flag (checked before
+`acCable`/`pipe`) for any cable touching a `pulley` anchor — a single bare
+`matSteelCable` cylinder, mirroring exactly how `pipe`/`acCable` render as one solid
+cylinder instead of dual strands. `findNearestAnchor`/`anchorThickness` both got
+`liftmotor`/`pulley` entries alongside the existing anchor types.
+
+Caught and fixed one visibility bug before calling this done: `waterGunGroup` (slot 5)
+and `repairGunGroup` (slot 6) were universal-tool groups gated only on the slot number,
+not on which job's own slot-5/6 tool should show instead — same class of bug the
+Plumber/Demolition slot-5 carve-outs already had to fix for themselves. Both now also
+exclude `liftJob`, alongside the pre-existing `plumberJob`/`demoJob` exclusions.
+
+Also found, while investigating: an entirely separate, older **20-floor Elevator
+Tower** (`elevatorTower`, v24) already exists at `(-115, -115)` with its own lever +
+machine-room inverter + moving car, driven by the generic Cable Gun and `E` interact —
+built specifically *not* to need dedicated Lift Electrician/Mechanic weapons, per the
+decision recorded in the v24 entry above. It's untouched and still fully functional
+(job-agnostic, doesn't check `currentJob` at all) — this pass doesn't wire the new
+toolkit into it; the two systems currently coexist rather than being unified. Worth
+deciding later whether the tower should eventually require the new Motor/Pulley/Elec
+Cable/Panel/Brake tools instead of its own inverter+lever, if a single lift-building
+mechanic is wanted.
+
+Verified live via `window.__debug`: `JOBS` now has one `liftmech` entry (33 jobs total,
+no `liftelectrician`/`liftmechanic` left); placed a motor, two pulleys, an MSWB, a
+panel, and a brake directly, then hand-built cable objects to confirm
+`findNearestAnchor` returns `liftmotor`/`pulley` correctly and `rebuildCableMesh`
+renders pulley-touching cables in steel (`0xc0c4c8`) and motor-to-MSWB cables in white
+AC cable (`0xf0f0f0`); ran the panel tester's full playback via
+`updateControlPanelTests` and confirmed it reaches the `input` state with the right
+sequence, and that matching input order flips every light green; stepped through
+weapons 1-6 as `liftmech` and confirmed exactly one view-model group is visible at each
+slot (this is what caught the water-gun/repair-tool bleed-through above); the Job Hut's
+hot-swap loadout panel correctly lists all 6 real tool icons for the merged desk. No
+console errors. Updated `index.html`'s start-screen copy (previously described the two
+old separate jobs and the tower narrative) and bumped the cache-buster to `?v=30`.
+
 ## Testing notes (for whoever picks this up)
 
 `window.__debug` exposes most internals for console-driven testing — see the
