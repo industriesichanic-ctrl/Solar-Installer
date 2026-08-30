@@ -1477,6 +1477,63 @@ already-owned item both just toast and leave state untouched.
   already at or above cap) and the pickup trickle to clamp against
   `Math.max(effMagSize(), ammo)` instead of `effMagSize()` alone.
 
+### Simplified intro, featured jobs, and the 20-floor Elevator Tower (v24)
+
+- **Overlay simplified**: the old start-screen text was a stale wall of
+  per-weapon Solar instructions written before the Job Hut existed. Replaced
+  with a short job-framed summary — movement basics, "go to the Job Hut and
+  pick a trade," and the four featured jobs by name.
+- **Four jobs featured up front**: Plumber was already first in
+  `JOB_HUT_GROUP_A`; moved `liftelectrician`/`liftmechanic` to the front of
+  `JOB_HUT_GROUP_B` (previously buried near the end, 12th/13th of 14) so
+  Solar (its own elevated pedestal), Plumber, Lift Electrician, and Lift
+  Mechanic are all encountered first. Both lift jobs were already
+  `unlocked: true` in `JOBS` — reordering, not unlocking, was what "have all
+  four available up the top" needed.
+- **New: 20-floor Elevator Tower**, stuck on the ground until repaired.
+  Deliberately reuses existing tools per explicit direction (asked whether
+  to reuse tools / add simple interact points / build dedicated new
+  Lift Electrician/Mechanic weapons — "reuse existing tools" was chosen) —
+  no new view models or fire logic for those two jobs, just new world
+  geometry plus the interact layer:
+  - Built with the exact same `buildBuilding()` + `buildFloorAccess()` any
+    other tall building uses (18×18, h:80 — "20 floors" at the existing
+    ~3.2m window-row spacing), placed at `(-115, -115)`, chosen specifically
+    because it's outside the city grid's ~103 max extent so there's no
+    footprint-overlap risk with already-generated buildings (added after the
+    grid loop runs, so it couldn't be added to `SPECIAL_ZONES` in time to
+    carve out a gap the normal way).
+  - A `placeInverter(...)` machine-room inverter (tier 1) is mounted on the
+    tower's own wall near the top — unwired and unpowered like any other
+    fresh inverter. "Electrician" work is just: wire a panel array to it
+    with the Cable Gun, then `E` to switch it on. No new code needed here at
+    all, it's the existing inverter system pointed at a pre-placed unit.
+  - A small lever prop at the shaft base is the one genuinely new
+    interactable: `tryElevatorInteract()` (checked first thing inside
+    `handleInteractKey()`, before the rubble/plumber/inverter chain) — `E`
+    within ~3m sets `leverFixed = true` and `operational = true`, but only
+    if `elevatorTower.inv.poweredOn` is already true; otherwise it toasts
+    without progressing. This is the "lift mechanic" step and it hard-gates
+    on the electrician step being done first.
+  - Once operational, `E` within ~3.5m of the car toggles it between floor 1
+    and the top floor. `updateElevatorTower(dt)` moves `car.position.y` at a
+    constant speed (`rideDuration` 14s edge-to-edge) and, if the player was
+    close enough to be considered "riding" when the call was made, adds the
+    car's per-frame Y delta straight onto `camera.position.y` — a simple
+    moving-platform carry, not a parent/child transform.
+  - Indicator sphere on the car reads red until the lever's fixed, then
+    turns green (`indicatorMat.color/emissive.setHex`), same visual language
+    as an inverter's power light.
+
+Verified live via `window.__debug`: pulling the lever with the inverter
+unpowered correctly refuses and leaves `operational: false`; wiring +
+switching on the inverter, then pulling the lever, correctly flips both
+`leverFixed` and `operational` and turns the indicator green; calling the
+car from the base correctly starts a ride with `riding: true`; fast-forwarding
+`updateElevatorTower` past the full `rideDuration` lands the car exactly on
+`topY` and carries the simulated player's camera Y up by the same delta, then
+correctly stops. No console errors across any of it.
+
 ## Testing notes (for whoever picks this up)
 
 `window.__debug` exposes most internals for console-driven testing — see the
